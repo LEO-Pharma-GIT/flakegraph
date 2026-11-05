@@ -1,0 +1,85 @@
+{{- if .Values.monitoring.enabled }}
+{{- if not .Values.database.cloudNativePG.enabled }}
+{{- fail "monitoring.enabled needs database.cloudNativePG.enabled: the chart declares the read-only role and its password through the CloudNativePG Cluster. With an external database, the operator has to create monitoring.database.role in pg_read_all_data and provision Grafana's datasource by hand." }}
+{{- end }}
+{{- $cnpg := .Values.database.cloudNativePG }}
+{{- $secretName := .Values.monitoring.database.secretName }}
+{{- /*
+The password Grafana signs in to PostgreSQL with, generated once and kept.
+
+Generated, because a values file is the wrong place for a credential. Kept,
+because a fresh one on every upgrade would be applied to the role by the
+operator and to the datasource by Grafana's sidecar at different moments, and
+the datasource would be wrong for the interval - on every upgrade, forever. So
+the existing Secret is read back and its password reused, and the Secret is
+marked to survive an uninstall so a reinstall reuses it too rather than leaving
+a Grafana that remembers the old one.
+
+Rendering offline (helm template) finds nothing to reuse and generates; that
+render is not what gets applied.
+*/}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $secretName }}
+{{- $password := "" }}
+{{- if and $existing $existing.data (hasKey $existing.data "password") }}
+{{- $password = index $existing.data "password" | b64dec }}
+{{- else }}
+{{- $password = randAlphaNum 32 }}
+{{- end }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secretName }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: monitoring
+  annotations:
+    helm.sh/resource-policy: keep
+# The shape CloudNativePG requires of a managed role's passwordSecret.
+type: kubernetes.io/basic-auth
+stringData:
+  username: {{ .Values.monitoring.database.role }}
+  password: {{ $password | quote }}
+---
+{{- /*
+Grafana's datasource for the coordination database. A Secret rather than a
+ConfigMap because it carries the password; the stack's datasource sidecar
+loads both kinds by the same label. Not editable: it is owned here, and an
+edit in the UI would be lost on the next sidecar reload anyway.
+*/}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "flakegraph.fullname" . }}-grafana-datasource
+  # Where the stack's datasource sidecar looks, which is its own namespace.
+  namespace: {{ include "flakegraph.monitoringNamespace" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: monitoring
+    grafana_datasource: "1"
+type: Opaque
+stringData:
+  flakegraph-postgres.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: FlakeGraph Postgres
+        uid: flakegraph-postgres
+        type: grafana-postgresql-datasource
+        # The read-write Service: the queues are written constantly, and a
+        # replica's view of them lags by however far replication is behind.
+        url: {{ printf "%s-rw:5432" $cnpg.clusterName | quote }}
+        database: {{ $cnpg.database | quote }}
+        user: {{ .Values.monitoring.database.role | quote }}
+        secureJsonData:
+          password: {{ $password | quote }}
+        jsonData:
+          sslmode: require
+          postgresVersion: 1700
+          timescaledb: false
+          # A dashboard is one operator refreshing a few panels, not a pool of
+          # workers. Kept small so a busy Grafana cannot crowd the workers out
+          # of the connection budget the cluster was sized for.
+          maxOpenConns: 4
+          maxIdleConns: 2
+        editable: false
+{{- end }}

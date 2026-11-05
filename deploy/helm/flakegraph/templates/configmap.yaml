@@ -1,0 +1,23 @@
+{{- if not .Values.config.existingConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "flakegraph.configMapName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+data:
+  {{ .Values.config.key }}: |
+    {{- .Values.config.content | nindent 4 }}
+{{- end }}
+{{- if and .Values.ontology.content (not .Values.ontology.existingConfigMap) }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "flakegraph.ontologyConfigMapName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+data:
+  {{ .Values.ontology.key }}: |
+    {{- .Values.ontology.content | nindent 4 }}
+{{- end }}

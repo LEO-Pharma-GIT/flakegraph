@@ -1,0 +1,95 @@
+{{- if .Values.database.bootstrap.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "flakegraph.fullname" . }}-database-bootstrap
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database-bootstrap
+  annotations:
+    # The hook makes schema readiness part of Helm's success contract. The
+    # command is idempotent, so a release fails here rather than in every newly
+    # rolled worker.
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  activeDeadlineSeconds: {{ .Values.database.bootstrap.activeDeadlineSeconds }}
+  backoffLimit: {{ .Values.database.bootstrap.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "flakegraph.selectorLabels" (dict "root" . "component" "database-bootstrap") | nindent 8 }}
+      annotations:
+        checksum/config: {{ .Values.config.content | sha256sum }}
+        {{- if or .Values.ontology.content .Values.ontology.existingConfigMap }}
+        checksum/ontology: {{ .Values.ontology.content | sha256sum }}
+        {{- end }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "flakegraph.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: initialize
+          image: {{ include "flakegraph.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              # Validate the exact mounted configuration and provider environment
+              # before publishing coordination schema that autoscalers depend on.
+              flakegraph preflight --deployment-worker --config /etc/flakegraph/{{ .Values.config.key }}
+              # Declare what the worker pools serve under this release's
+              # configuration. A pool scaled to zero has no worker to declare its
+              # new digest, and the demand signal counts only work the declared
+              # fleet can take, so without this an upgrade of an idle fleet
+              # would never scale up for a run planned under the new digest.
+              exec flakegraph distributed init --config /etc/flakegraph/{{ .Values.config.key }}{{ include "flakegraph.servedStageFlags" . }}
+          env:
+            - name: KG_DISTRIBUTED_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.secretName }}
+                  key: {{ .Values.database.secretKey }}
+            {{- if or .Values.ontology.content .Values.ontology.existingConfigMap }}
+            - name: KG_ONTOLOGY_PROFILE
+              value: /etc/flakegraph-ontology/{{ .Values.ontology.key }}
+            {{- end }}
+            {{- include "flakegraph.consumerEnv" . | nindent 12 }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- include "flakegraph.providerSecretEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.database.bootstrap.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/flakegraph
+              readOnly: true
+            {{- if or .Values.ontology.content .Values.ontology.existingConfigMap }}
+            - name: ontology
+              mountPath: /etc/flakegraph-ontology
+              readOnly: true
+            {{- end }}
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "flakegraph.configMapName" . }}
+        {{- if or .Values.ontology.content .Values.ontology.existingConfigMap }}
+        - name: ontology
+          configMap:
+            name: {{ include "flakegraph.ontologyConfigMapName" . }}
+        {{- end }}
+        - name: tmp
+          emptyDir: {}
+{{- end }}

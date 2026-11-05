@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "result_id": "mah-v1-qwen36-35b-a3b-nvfp4-vllm-k8s-1x-gb10-20260715",
+  "status": "measured",
+  "status_reason": "Three complete uncached queue-backed repetitions succeeded; one malformed model response was retried successfully.",
+  "measured_at_utc": "2026-07-15T08:20:20.457Z",
+  "dataset": {
+    "id": "martial-arts-history-v1",
+    "version": "1.0.0",
+    "license": "CC0-1.0",
+    "manifest_path": "data/martial_arts/manifest.jsonl",
+    "manifest_sha256": "26966f45dda5ce8739650f3f0988dce4448e0cc882db248ee18d97e0b7e8f8c6",
+    "gold_path": "data/martial_arts/gold.json",
+    "gold_sha256": "3eb2939b844dce416d9bed00e335a782dfdae8581df32f819999f2f0d5d3a799",
+    "document_count": 10,
+    "expected_entity_count": 74,
+    "expected_relation_count": 104,
+    "evidence_observation_count": 109
+  },
+  "configuration": {
+    "path": "data/martial_arts/configs/kubernetes-vllm.yaml",
+    "sha256": "f8e31a60fc09209aab341cb6650ab36dcedacff0b78030cd37e916f4de655dad",
+    "config_digest": "22b64b34c34a80708e5979fd95c76f85a885f26819ce75c4f79e1783d0260268",
+    "ontology_path": "data/martial_arts/ontology.yaml",
+    "ontology_sha256": "16f73a1a66b45d09474bfbf52773a17b2f907efa9de77905d421c547ca4633f6",
+    "prompt_revision": "two-pass-extraction-v30"
+  },
+  "models": {
+    "llm": {
+      "provider": "vllm_local",
+      "name": "nvidia/Qwen3.6-35B-A3B-NVFP4",
+      "revision": "491c2f1ea524c639598bf8fa787a93fed5a6fbce",
+      "parameter_size": "35B total / 3B active",
+      "quantization": "NVFP4"
+    },
+    "embedding": {
+      "provider": "sentence_transformers",
+      "name": "sentence-transformers/all-MiniLM-L6-v2",
+      "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+      "dimension": 384
+    }
+  },
+  "runtime": {
+    "execution": "Kubernetes",
+    "serving_software": "NVIDIA vLLM",
+    "serving_version": "26.05.post1",
+    "orchestrator": "k3s 1.36.1+k3s1",
+    "spark_version": "4.1.2",
+    "graphframes_version": "0.12.1",
+    "python_version": "3.14.5",
+    "ocr_provider": "builtin_text"
+  },
+  "serving_configuration": {
+    "model_replicas": 1,
+    "maximum_sequences_per_replica": 4,
+    "maximum_batched_tokens": 32768,
+    "maximum_model_length": 262144,
+    "gpu_memory_utilization": 0.5,
+    "kv_cache_dtype": "fp8",
+    "attention_backend": "flashinfer",
+    "moe_backend": "marlin",
+    "speculative_method": "mtp",
+    "speculative_tokens": 3,
+    "thinking_enabled": false
+  },
+  "hardware": {
+    "model_nodes": 1,
+    "accelerator": "NVIDIA GB10",
+    "unified_memory_gib_per_node": 128,
+    "architecture": "arm64",
+    "cpu_control_nodes": 1
+  },
+  "protocol": {
+    "run_ids": [
+      "martial-qwen36-v30-1x-measured1-20260715",
+      "martial-qwen36-v30-1x-measured2-20260715",
+      "martial-qwen36-v30-1x-measured3-20260715"
+    ],
+    "requested_repeats": 3,
+    "completed_repeats": 3,
+    "cache_disabled": true,
+    "prepare_workers": 10,
+    "extraction_workers": 3,
+    "spark_executors": 1,
+    "spark_executor_cores": 4,
+    "preparation_tasks": 10,
+    "document_context_tasks": 10,
+    "entity_window_tasks": 12,
+    "relation_window_tasks": 12,
+    "compaction_tasks": 20,
+    "finalization_tasks": 1,
+    "failed_task_attempts": 1,
+    "deterministic_seed": 17
+  },
+  "measurements": {
+    "accepted_run_count": 1,
+    "timing_seconds": {
+      "maximum": 1191.309,
+      "mean": 1083.917,
+      "median": 1101.471,
+      "minimum": 958.972,
+      "runs": [958.972, 1191.309, 1101.471]
+    },
+    "stage_timing_seconds": {
+      "preparation_mean": 1.02,
+      "extraction_mean": 946.478,
+      "spark_finalization_mean": 136.419
+    },
+    "throughput_documents_per_minute": 0.558,
+    "output": {
+      "aggregation": "mean_across_repeats",
+      "documents": 10,
+      "chunks": 32,
+      "entities": 341,
+      "relations": 174,
+      "edge_observations": 193.333,
+      "evidence_records": 680.667,
+      "communities": 18.667
+    },
+    "quality": {
+      "acceptance_thresholds_met": false,
+      "component_count": 1.6667,
+      "entity_precision": 1.0,
+      "entity_recall": 0.982,
+      "entity_f1": 0.9909,
+      "triple_precision": 0.9539,
+      "triple_recall": 0.9011,
+      "triple_f1": 0.9263,
+      "evidence_support_rate": 0.8974,
+      "information_retention": 0.9416,
+      "isolate_ratio": 0.0045,
+      "two_hop_recoverability": 0.9121
+    },
+    "stability": {
+      "pair_count": 3,
+      "mean_node_jaccard": 0.6006,
+      "minimum_node_jaccard": 0.5731,
+      "mean_triple_jaccard": 0.5372,
+      "minimum_triple_jaccard": 0.5129
+    }
+  }
+}

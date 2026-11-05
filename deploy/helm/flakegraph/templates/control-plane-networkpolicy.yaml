@@ -1,0 +1,36 @@
+{{- if and .Values.controlPlane.enabled .Values.controlPlane.networkPolicy.enabled }}
+{{- /*
+The control plane does not authenticate its own callers. It reads the identity
+the gate established, from a header the ingress controller sets - which is proof
+of nothing to anyone who can reach the pod without passing through that
+controller. In a namespace where any workload can open a connection to any
+Service, that header is an unauthenticated request parameter.
+
+This policy is what makes trusting the header sound: the only source permitted
+to reach the application's port is the controller that terminates the gate.
+Nothing else in the cluster can address it at all, so nothing else can assert an
+identity to it.
+
+Probes are not listed. The kubelet reaches the pod from the node rather than
+from another pod, which this implementation permits - the model-serving policy
+beside this one has the same shape and its pods stay ready.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "flakegraph.controlPlaneName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "flakegraph.selectorLabels" (dict "root" . "component" "control-plane") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- toYaml .Values.controlPlane.networkPolicy.from | nindent 8 }}
+      ports:
+        - port: http
+          protocol: TCP
+{{- end }}

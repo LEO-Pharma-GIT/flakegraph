@@ -1,0 +1,462 @@
+{{- if .Values.modelServing.enabled }}
+{{- $spec := .Values.modelServing.server }}
+{{- $seed := $spec.draftModelSeed }}
+{{- /*
+Engines nobody routes to are a GPU bill with no consumer: the gateway forwards
+to an external provider, and the workers only ever address the gateway.
+*/}}
+{{- if and .Values.gateway.enabled (not (include "flakegraph.engineUpstream" .)) }}
+{{- fail "modelServing.enabled with gateway.litellm.upstream.type=external serves engines the gateway never forwards to. Set upstream.type=engine to serve the in-cluster model, or disable modelServing." }}
+{{- end }}
+{{- /*
+Speculation needs a method to speculate with; the engine's error for a missing
+one names an internal config class rather than the values key.
+*/}}
+{{- if and (gt (int $spec.speculativeTokens) 0) (not $spec.speculativeMethod) }}
+{{- fail "modelServing.server.speculativeTokens is set but speculativeMethod is empty. Name the drafter (mtp, dflash, eagle, ...), or set speculativeTokens to 0." }}
+{{- end }}
+{{- /*
+A draft model given as a path is only a promise that something else put it
+there. When nothing has, the engine fails at load time with a message about an
+invalid repository id, which sends the reader looking for a typo. Catch it here,
+where the remedies can be named.
+*/}}
+{{- if and (gt (int $spec.speculativeTokens) 0) (hasPrefix "/" ($spec.speculativeDraftModel | default "")) }}
+{{- if and (not $seed.image) (not $seed.providedExternally) }}
+{{- fail (printf "modelServing.server.speculativeDraftModel is the path %s, but nothing supplies it. Set modelServing.server.draftModelSeed.image to an image carrying the model, or draftModelSeed.providedExternally=true if a mount does. A Hub id needs neither." $spec.speculativeDraftModel) }}
+{{- end }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "flakegraph.modelServingName" . }}-headless
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: model-serving
+    # Both Services here front the same pods. A ServiceMonitor selecting on the
+    # component alone would find both and scrape every engine twice under two
+    # job names, so the one to scrape through is marked, and it is this one:
+    # headless, so each engine is a target of its own rather than a virtual IP.
+    flakegraph.io/scrape: "true"
+spec:
+  clusterIP: None
+  selector:
+    {{- include "flakegraph.selectorLabels" (dict "root" . "component" "model-serving") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.modelServing.service.port }}
+      targetPort: http
+      protocol: TCP
+    {{- if .Values.modelServing.kvEvents.enabled }}
+    - name: kv-events
+      port: {{ .Values.modelServing.kvEvents.port }}
+      targetPort: kv-events
+      protocol: TCP
+    - name: kv-replay
+      port: {{ .Values.modelServing.kvEvents.replayPort }}
+      targetPort: kv-replay
+      protocol: TCP
+    {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "flakegraph.modelServingName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: model-serving
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+  selector:
+    {{- include "flakegraph.selectorLabels" (dict "root" . "component" "model-serving") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.modelServing.service.port }}
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "flakegraph.modelServingName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: model-serving
+spec:
+  serviceName: {{ include "flakegraph.modelServingName" . }}-headless
+  replicas: {{ .Values.modelServing.replicas }}
+  podManagementPolicy: Parallel
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "flakegraph.selectorLabels" (dict "root" . "component" "model-serving") | nindent 6 }}
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        {{- include "flakegraph.selectorLabels" (dict "root" . "component" "model-serving") | nindent 8 }}
+      annotations:
+        # Restart replicas whenever the immutable model revision, the serving
+        # profile, or the enforcement floor's own configuration changes, even
+        # when the images themselves remain pinned. A silently stale priority
+        # band would be indistinguishable from a correctly served fleet.
+        checksum/model-serving: {{ dict "model" .Values.modelServing.model "server" .Values.modelServing.server "sidecar" .Values.modelServing.sidecar "sizing" .Values.modelServing.sizing | toJson | sha256sum }}
+    spec:
+      {{- if .Values.scheduling.priorityClasses.enabled }}
+      priorityClassName: {{ include "flakegraph.modelPriorityClassName" . }}
+      {{- end }}
+      serviceAccountName: {{ include "flakegraph.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.modelServing.runtimeClassName }}
+      # Only where GPU pods have to name a RuntimeClass to be handed the
+      # device; a cluster whose default runtime injects GPUs names none.
+      runtimeClassName: {{ . }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.modelServing.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.modelServing.podSecurityContext | nindent 8 }}
+      {{- with .Values.modelServing.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.modelServing.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.modelServing.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  {{- include "flakegraph.selectorLabels" (dict "root" . "component" "model-serving") | nindent 18 }}
+              topologyKey: {{ .Values.modelServing.topologyKey }}
+      {{- if and (gt (int $spec.speculativeTokens) 0) (hasPrefix "/" ($spec.speculativeDraftModel | default "")) $seed.image }}
+      # Seed the draft model into this replica's own volume before the engine
+      # looks for it. Idempotent, so a restart costs nothing and a replica that
+      # already holds the model does not copy it again.
+      initContainers:
+        - name: seed-draft-model
+          image: {{ $seed.image | quote }}
+          imagePullPolicy: {{ $seed.pullPolicy }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              target="{{ $spec.speculativeDraftModel }}"
+              if [ -e "$target" ]; then
+                echo "draft model already present at $target"
+                exit 0
+              fi
+              echo "seeding draft model from {{ $seed.sourcePath }} to $target"
+              mkdir -p "$(dirname "$target")"
+              rm -rf "$target.partial"
+              cp -r "{{ $seed.sourcePath }}" "$target.partial"
+              # Renamed last, so an interrupted copy is never mistaken for a
+              # complete one by the engine or by the next run of this container.
+              mv "$target.partial" "$target"
+          securityContext:
+            {{- toYaml .Values.modelServing.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: models
+              mountPath: /models
+      {{- end }}
+      containers:
+        # The sidecar owns the only exposed port. It authenticates the caller,
+        # maps the key to a consumer class, strips any client-supplied priority,
+        # and stamps the server's band before forwarding over localhost. Probes
+        # live here rather than on the engine because a healthy engine behind an
+        # unhealthy floor is not a servable replica.
+        - name: sidecar
+          image: {{ include "flakegraph.sidecarImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [flakegraph, serving, sidecar]
+          env:
+            - name: FLAKEGRAPH_SIDECAR_UPSTREAM
+              value: {{ printf "http://127.0.0.1:%v" .Values.modelServing.server.enginePort | quote }}
+            - name: FLAKEGRAPH_SIDECAR_LISTEN_PORT
+              value: {{ .Values.modelServing.service.port | quote }}
+            - name: FLAKEGRAPH_SIDECAR_KEYS_FILE
+              value: {{ printf "/etc/flakegraph/serving/%s" .Values.modelServing.sidecar.keySecret.key | quote }}
+            - name: FLAKEGRAPH_SIDECAR_BANDS
+              value: {{ .Values.modelServing.sidecar.bands | toJson | quote }}
+            - name: FLAKEGRAPH_SIDECAR_GEOMETRY
+              value: {{ include "flakegraph.modelServingGeometry" . | quote }}
+            - name: FLAKEGRAPH_SIDECAR_DEVICE_BUDGET
+              value: {{ include "flakegraph.modelServingDeviceBudget" . | quote }}
+            - name: FLAKEGRAPH_SIDECAR_EXPECTED_CONTEXT_TOKENS
+              value: {{ .Values.modelServing.sizing.expectedContextTokens | quote }}
+            - name: FLAKEGRAPH_SIDECAR_MAX_NUM_SEQS
+              value: {{ .Values.modelServing.server.maxNumSeqs | quote }}
+            {{- with .Values.modelServing.sidecar.interactiveFirst }}
+            - name: FLAKEGRAPH_SIDECAR_HELD_CLASSES
+              value: {{ join "," .heldClasses | quote }}
+            - name: FLAKEGRAPH_SIDECAR_HOLD_SECONDS
+              value: {{ .holdSeconds | quote }}
+            - name: FLAKEGRAPH_SIDECAR_HOLD_TRICKLE_SECONDS
+              value: {{ .trickleSeconds | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.modelServing.service.port }}
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: {{ div .Values.modelServing.startupTimeoutSeconds 5 }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.modelServing.sidecar.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.modelServing.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: serving-keys
+              mountPath: /etc/flakegraph/serving
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+        - name: vllm
+          image: {{ include "flakegraph.componentImage" .Values.modelServing.image }}
+          imagePullPolicy: {{ .Values.modelServing.image.pullPolicy }}
+          command: [vllm]
+          args:
+            - serve
+            - {{ .Values.modelServing.model.name | quote }}
+            - --served-model-name
+            - {{ .Values.modelServing.model.name | quote }}
+            - --revision
+            - {{ .Values.modelServing.model.revision | quote }}
+            # Bound to loopback so the sidecar is the only route in. A
+            # NetworkPolicy adds defence in depth; this is the boundary itself.
+            - --host
+            - 127.0.0.1
+            - --port
+            - {{ .Values.modelServing.server.enginePort | quote }}
+            # Orders the waiting queue on (priority, arrival). Rendered
+            # unconditionally: without it the engine silently serves FIFO and
+            # every stamped priority is ignored with no error raised anywhere.
+            - --scheduling-policy
+            - priority
+            - --tensor-parallel-size
+            - {{ .Values.modelServing.server.tensorParallelSize | quote }}
+            {{- if .Values.modelServing.server.trustRemoteCode }}
+            # Lets the checkpoint's own Python run on the node. Deliberate,
+            # for a checkpoint whose code has been read.
+            - --trust-remote-code
+            {{- end }}
+            {{- with .Values.modelServing.server.quantization }}
+            # The checkpoint declares its own scheme and the engine refuses to
+            # start when this disagrees with it. Leave the value empty to let
+            # the engine read it from the model instead of asserting it here.
+            - --quantization
+            - {{ . | quote }}
+            {{- end }}
+            - --kv-cache-dtype
+            - {{ .Values.modelServing.server.kvCacheDtype | quote }}
+            {{- with .Values.modelServing.server.attentionBackend }}
+            # Empty means the engine picks a backend for the platform it finds.
+            - --attention-backend
+            - {{ . | quote }}
+            {{- end }}
+            {{- with .Values.modelServing.server.moeBackend }}
+            # Empty means the engine picks a MoE kernel for the platform it
+            # finds. Naming one that the build does not carry is a startup
+            # failure rather than a fallback.
+            - --moe-backend
+            - {{ . | quote }}
+            {{- end }}
+            - --gpu-memory-utilization
+            - {{ .Values.modelServing.server.gpuMemoryUtilization | quote }}
+            - --max-model-len
+            - {{ .Values.modelServing.server.maxModelLen | quote }}
+            - --max-num-seqs
+            - {{ .Values.modelServing.server.maxNumSeqs | quote }}
+            - --max-num-batched-tokens
+            - {{ .Values.modelServing.server.maxNumBatchedTokens | quote }}
+            - --enable-chunked-prefill
+            - --async-scheduling
+            - --enable-prefix-caching
+            {{- if .Values.modelServing.server.skipMultimodalProfiling }}
+            # A vision-language checkpoint served text-only. Profiling a dummy
+            # image and video anyway reserves activation memory for encoders
+            # no request will reach.
+            - --skip-mm-profiling
+            {{- end }}
+            {{- with .Values.modelServing.server.limitMultimodalPerPrompt }}
+            # Zero here closes the modality rather than merely leaving it
+            # unused, so a caller cannot spend the engine's memory on one. An
+            # empty map renders nothing, which is what a text-only model wants.
+            - --limit-mm-per-prompt
+            - {{ toJson . | quote }}
+            {{- end }}
+            {{- if .Values.modelServing.kvEvents.enabled }}
+            # Publishing cache events lets the endpoint picker route on what each
+            # replica actually holds rather than on a hash of the prefix.
+            # The topic is not decoration. The picker subscribes with the ZMQ
+            # prefix filter "kv@" and reads the model name out of
+            # kv@<pod>@<model> to seed the block-hash chain it matches against.
+            # vLLM's own default is the empty topic, which that filter discards -
+            # so omitting this publishes events to nobody, and the picker goes on
+            # scoring prefixes by estimate while appearing to be configured.
+            - --kv-events-config
+            - {{ printf "{\"enable_kv_cache_events\":true,\"publisher\":\"zmq\",\"endpoint\":\"tcp://*:%v\",\"replay_endpoint\":\"tcp://*:%v\",\"topic\":\"kv@$(POD_IP):%v@%s\"}" .Values.modelServing.kvEvents.port .Values.modelServing.kvEvents.replayPort .Values.modelServing.kvEvents.port .Values.modelServing.model.name | quote }}
+            {{- end }}
+            {{- if gt (int .Values.modelServing.server.speculativeTokens) 0 }}
+            # Compatible with --async-scheduling: config/vllm.py admits every
+            # EagleModelTypes member, and both mtp and dflash are among them.
+            {{- $speculative := dict "method" .Values.modelServing.server.speculativeMethod "num_speculative_tokens" (int .Values.modelServing.server.speculativeTokens) }}
+            {{- with .Values.modelServing.server.speculativeMoeBackend }}
+            {{- $_ := set $speculative "moe_backend" . }}
+            {{- end }}
+            {{- if .Values.modelServing.server.speculativeDraftModel }}
+            {{- $_ := set $speculative "model" .Values.modelServing.server.speculativeDraftModel }}
+            {{- end }}
+            {{- if .Values.modelServing.server.speculativeDraftRevision }}
+            {{- $_ := set $speculative "revision" .Values.modelServing.server.speculativeDraftRevision }}
+            {{- end }}
+            - --speculative-config
+            - {{ toJson $speculative | quote }}
+            {{- end }}
+            {{- with .Values.modelServing.server.loadFormat }}
+            # Empty means the engine's own default loader. A loader that stages
+            # weights outside the torch allocator is charged to the KV budget
+            # without appearing in the engine's own "Model loading took"
+            # figure, so it goes wrong at cache-allocation time with nothing
+            # in the weights line to explain it. See values.yaml.
+            - --load-format
+            - {{ . | quote }}
+            {{- end }}
+            {{- /*
+            How the engine reads the checkpoint's chat template: which parser
+            separates reasoning from the answer, and which reads tool calls.
+            Both belong to the model, so both come from values; a model that
+            speaks neither leaves them empty and neither flag is rendered.
+            */}}
+            {{- with .Values.modelServing.server.reasoningParser }}
+            - --reasoning-parser
+            - {{ . | quote }}
+            {{- end }}
+            {{- with .Values.modelServing.server.toolCallParser }}
+            - --tool-call-parser
+            - {{ . | quote }}
+            {{- if $.Values.modelServing.server.enableAutoToolChoice }}
+            - --enable-auto-tool-choice
+            {{- end }}
+            {{- end }}
+          env:
+            {{- if .Values.modelServing.kvEvents.enabled }}
+            # The cache-event topic carries this, so the picker can tell
+            # which replica an event came from.
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            {{- end }}
+            - name: HOME
+              value: /tmp/vllm-home
+            - name: HF_HOME
+              value: /models/huggingface
+            - name: VLLM_CACHE_ROOT
+              value: /models/vllm
+            {{- if not .Values.modelServing.server.usageStats }}
+            # vLLM reports anonymous usage to its maintainers unless told
+            # not to; DO_NOT_TRACK is the convention other tools in the image
+            # honour for the same thing.
+            - name: VLLM_NO_USAGE_STATS
+              value: "1"
+            - name: DO_NOT_TRACK
+              value: "1"
+            {{- end }}
+            # The Hub client tags downloads with an identifying user agent
+            # unless told not to. The engine's downloads are the model it was
+            # told to serve, which is nobody else's business.
+            - name: HF_HUB_DISABLE_TELEMETRY
+              value: "1"
+            {{- if .Values.modelServing.huggingFaceTokenSecret.name }}
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.modelServing.huggingFaceTokenSecret.name }}
+                  key: {{ .Values.modelServing.huggingFaceTokenSecret.key }}
+                  optional: {{ .Values.modelServing.huggingFaceTokenSecret.optional }}
+            {{- end }}
+            {{- with .Values.modelServing.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- if .Values.modelServing.kvEvents.enabled }}
+          ports:
+            - name: kv-events
+              containerPort: {{ .Values.modelServing.kvEvents.port }}
+              protocol: TCP
+            - name: kv-replay
+              containerPort: {{ .Values.modelServing.kvEvents.replayPort }}
+              protocol: TCP
+          {{- end }}
+          resources:
+            {{- include "flakegraph.modelServingResources" . | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.modelServing.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: models
+              mountPath: /models
+            - name: tmp
+              mountPath: /tmp
+            - name: dshm
+              mountPath: /dev/shm
+            {{- with .Values.modelServing.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: serving-keys
+          secret:
+            secretName: {{ .Values.modelServing.sidecar.keySecret.name }}
+        - name: tmp
+          emptyDir: {}
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.modelServing.sharedMemorySizeLimit }}
+        {{- if not .Values.modelServing.persistence.enabled }}
+        - name: models
+          emptyDir: {}
+        {{- end }}
+        {{- with .Values.modelServing.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+  {{- if .Values.modelServing.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: models
+      spec:
+        accessModes:
+          {{- toYaml .Values.modelServing.persistence.accessModes | nindent 10 }}
+        {{- with .Values.modelServing.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.modelServing.persistence.size }}
+  {{- end }}
+{{- end }}

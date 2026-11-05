@@ -1,0 +1,122 @@
+# Profile: the smallest install that runs a corpus end to end - no GPU, no
+# operators, no CRDs. Suitable for kind, k3d, a single-node cluster, or a
+# first look. Inference goes through the gateway to an Ollama server (or any
+# OpenAI-compatible endpoint) reachable from the cluster; OCR is the built-in
+# born-digital text extraction, so the MinerU parsing pool is not rendered.
+#
+# What is still needed: a PostgreSQL URI in the database Secret, the gateway's
+# key Secret (master, salt, and one virtual key for the workers), and the
+# provider Secret (every key optional). NOTES lists them after install, and the
+# pre-install check refuses an install while any is missing.
+image:
+  repository: registry.example.com/flakegraph
+  tag: "0.1.0"
+
+# A PostgreSQL reachable from the cluster - a managed service, or something
+# like the bitnami/postgresql chart beside this release. Its URI goes into the
+# Secret named here under `uri`.
+database:
+  secretName: flakegraph-postgres-app
+  secretKey: uri
+  cloudNativePG:
+    enabled: false
+
+# Ollama on a host the cluster can reach; no key. Any OpenAI-compatible
+# provider works the same way with an apiKeySecret.
+gateway:
+  litellm:
+    upstream:
+      type: external
+      apiBase: http://ollama.ollama.svc.cluster.local:11434
+      models:
+        - ollama_chat/qwen3:8b
+    replicas: 1
+    autoscaling:
+      enabled: false
+
+modelServing:
+  enabled: false
+
+# Born-digital text only. Scanned pages come back empty rather than through a
+# parser; turn documentParsing back on and switch the config's ocr.provider to
+# `fallback` for scans.
+documentParsing:
+  enabled: false
+
+config:
+  content: |
+    runtime:
+      runtime: kubernetes
+    job:
+      graph_id: flakegraph
+    files:
+      source: local
+      input_path: /data/input
+    ocr:
+      provider: builtin_text
+    llm:
+      provider: openai_compatible
+      endpoint: ${KG_LLM_ENDPOINT}
+      model: ${KG_LLM_MODEL}
+      api_key: ${KG_LLM_API_KEY}
+    embedding:
+      provider: sentence_transformers
+      model: Qwen/Qwen3-Embedding-0.6B
+    writer:
+      provider: local_artifacts
+      output_path: /data/output
+    cache:
+      provider: none
+
+workers:
+  prepare:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+  extract:
+    replicas: 1
+    # A model server on CPU answers a request or two at a time; more slots
+    # would only queue at the server until their calls time out.
+    slots: 2
+    resources:
+      requests:
+        cpu: 500m
+        memory: 2Gi
+      limits:
+        cpu: "2"
+        memory: 8Gi
+  finalize:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 2Gi
+      limits:
+        cpu: "2"
+        memory: 8Gi
+
+# No KEDA on a minimal cluster: fixed replicas above.
+autoscaling:
+  enabled: false
+
+# Cluster-scoped PriorityClasses are the one thing here that needs more than
+# namespace admin; leave them on where you have it.
+scheduling:
+  priorityClasses:
+    enabled: true
+
+controlPlane:
+  # Enable only with a gate or an explicitly isolated singleOperator address.
+  enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi

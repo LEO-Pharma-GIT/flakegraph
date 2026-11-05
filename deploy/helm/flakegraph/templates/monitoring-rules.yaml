@@ -1,0 +1,221 @@
+{{- if and .Values.monitoring.enabled .Values.monitoring.rules.enabled }}
+{{- $t := .Values.monitoring.rules.thresholds }}
+{{- $ns := printf "namespace=%q" .Release.Namespace }}
+{{- $runbook := "docs/kubernetes-fleet.md#verifying-a-fleet" }}
+{{- /*
+What is worth waking someone for, and what is worth a look in the morning.
+
+Critical is reserved for the serving design's invariants and for a plane being
+gone: an engine that preempted is an engine that evicted somebody's work
+mid-flight, which the whole priority scheme exists to make impossible, and a
+gateway nobody can reach is a pipeline nobody can run. Everything else is a
+warning: capacity that is running out, work that is stalling, failures that
+are accumulating - conditions that name a cause before they become an outage.
+
+Every number here comes from monitoring.rules.thresholds, with the reasoning
+beside it. Alert text uses Prometheus's own template syntax, which has to be
+handed through Helm's untouched - hence the raw strings.
+*/}}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "flakegraph.fullname" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: monitoring
+spec:
+  groups:
+    - name: flakegraph.serving
+      rules:
+        {{- if .Values.modelServing.enabled }}
+        # The core invariant. An engine that runs out of KV blocks preempts a
+        # *running* request and evicts the lowest-priority one, which is batch
+        # work, mid-flight. The sizing block and the sidecar's startup check
+        # exist so that this never happens; if it does, one of them is wrong.
+        - alert: FlakeGraphEnginePreempted
+          expr: increase(vllm:num_preemptions_total{ {{- $ns -}} }[10m]) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: Engine {{ `{{ $labels.engine }}` }} preempted a running request
+            description: >-
+              {{ `{{ $labels.engine }}` }} on {{ `{{ $labels.node }}` }} preempted
+              {{ `{{ $value | humanize }}` }} request(s) in the last ten minutes.
+              A running request was evicted for KV blocks, which the sequence
+              limit is set to make impossible. Check modelServing.server.maxNumSeqs
+              against the sizing block, and whether the node is under memory
+              pressure from another tenant.
+            runbook: {{ $runbook }}
+        - alert: FlakeGraphEngineDown
+          expr: up{job={{ printf "%s-headless" (include "flakegraph.modelServingName" .) | quote }}, {{ $ns }}} == 0
+          for: {{ $t.targetDownFor }}
+          labels:
+            severity: critical
+          annotations:
+            summary: Engine {{ `{{ $labels.engine }}` }} is not answering scrapes
+            description: >-
+              {{ `{{ $labels.engine }}` }} on {{ `{{ $labels.node }}` }} has failed
+              its scrape for {{ $t.targetDownFor }}. The router has stopped placing
+              traffic on it; capacity is down by one replica.
+            runbook: {{ $runbook }}
+        - alert: FlakeGraphKvCacheSaturated
+          expr: vllm:kv_cache_usage_perc{ {{- $ns -}} } > {{ $t.kvCacheUsage }}
+          for: {{ $t.kvCacheUsageFor }}
+          labels:
+            severity: warning
+          annotations:
+            summary: Engine {{ `{{ $labels.engine }}` }} KV cache is nearly full
+            description: >-
+              {{ `{{ $labels.engine }}` }} has held {{ `{{ $value | humanizePercentage }}` }}
+              of its KV cache for {{ $t.kvCacheUsageFor }}. One more long context
+              and the engine preempts. Either the sequence limit is too high for
+              the contexts being served, or the fleet needs another replica.
+            runbook: {{ $runbook }}
+        - alert: FlakeGraphTimeToFirstTokenSlow
+          expr: >-
+            histogram_quantile(0.95,
+              sum by (engine, le) (rate(vllm:time_to_first_token_seconds_bucket{ {{- $ns -}} }[5m]))
+            ) > {{ $t.ttftP95Seconds }}
+          for: {{ $t.ttftFor }}
+          labels:
+            severity: warning
+          annotations:
+            summary: Engine {{ `{{ $labels.engine }}` }} p95 time to first token is {{ `{{ $value | humanizeDuration }}` }}
+            description: >-
+              Interactive callers have waited more than {{ $t.ttftP95Seconds }}s
+              for a first token at p95 for {{ $t.ttftFor }} on {{ `{{ $labels.engine }}` }}.
+              Either prefill is queued behind batch work despite priority, or
+              the prompt mix has grown past what the batched-token budget covers.
+            runbook: {{ $runbook }}
+        {{- end }}
+        {{- if .Values.gateway.enabled }}
+        - alert: FlakeGraphGatewayDown
+          expr: up{job={{ include "flakegraph.gatewayName" . | quote }}, {{ $ns }}} == 0
+          for: {{ $t.targetDownFor }}
+          labels:
+            severity: critical
+          annotations:
+            summary: Gateway replica {{ `{{ $labels.pod }}` }} is not answering scrapes
+            description: >-
+              {{ `{{ $labels.pod }}` }} on {{ `{{ $labels.node }}` }} has failed its
+              scrape for {{ $t.targetDownFor }}. Every consumer takes this path to
+              inference; with no replica up, the pipeline and every caller stall.
+            runbook: {{ $runbook }}
+        {{- end }}
+    - name: flakegraph.documents
+      rules:
+        {{- if .Values.documentParsing.enabled }}
+        - alert: FlakeGraphOcrShimDown
+          expr: up{job={{ include "flakegraph.ocrShimName" . | quote }}, {{ $ns }}} == 0
+          for: {{ $t.targetDownFor }}
+          labels:
+            severity: critical
+          annotations:
+            summary: Parsing shim replica {{ `{{ $labels.pod }}` }} is not answering scrapes
+            description: >-
+              {{ `{{ $labels.pod }}` }} on {{ `{{ $labels.node }}` }} has failed its
+              scrape for {{ $t.targetDownFor }}. Documents that need OCR queue
+              through the shim; with no replica up, preparation stalls.
+            runbook: {{ $runbook }}
+        # The shim holds work on purpose, so a queue is not a fault. A request
+        # held this long is: the pool is not draining what the shim admits.
+        - alert: FlakeGraphOcrQueueStalled
+          expr: max(flakegraph_ocr_oldest_waiting_seconds{ {{- $ns -}} }) > {{ $t.ocrOldestWaitingSeconds }}
+          labels:
+            severity: warning
+          annotations:
+            summary: A parse request has waited {{ `{{ $value | humanizeDuration }}` }} for a slot
+            description: >-
+              The oldest request held by the parsing shim has waited longer than
+              {{ $t.ocrOldestWaitingSeconds }}s. Check that the MinerU pool is
+              scheduled and ready, and that its replicas are reporting capacity.
+            runbook: {{ $runbook }}
+        - alert: FlakeGraphOcrUpstreamFailing
+          expr: >-
+            sum(rate(flakegraph_ocr_requests_total{ {{- $ns -}}, outcome=~"upstream_.*"}[15m]))
+              /
+            sum(rate(flakegraph_ocr_requests_total{ {{- $ns -}} }[15m]))
+              > {{ $t.ocrUpstreamFailureRatio }}
+          labels:
+            severity: warning
+          annotations:
+            summary: MinerU is failing {{ `{{ $value | humanizePercentage }}` }} of dispatched parses
+            description: >-
+              More than {{ $t.ocrUpstreamFailureRatio }} of parse requests over the
+              last fifteen minutes ended in an upstream error or timeout. Those
+              documents fall through to the worker's fallback or fail; look at
+              the MinerU pods' logs before the batch retries them.
+            runbook: {{ $runbook }}
+        {{- end }}
+    - name: flakegraph.pipeline
+      rules:
+        - alert: FlakeGraphTasksFailing
+          expr: sum(cnpg_flakegraph_tasks_failed_recent_count{ {{- $ns -}} }) > {{ $t.taskFailuresPerHour }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ `{{ $value }}` }} tasks failed in the last hour"
+            description: >-
+              More than {{ $t.taskFailuresPerHour }} tasks failed across all stages
+              in the last hour. Single failures retry; this many means a provider,
+              a profile, or a document class is broken. The failing stage is in
+              cnpg_flakegraph_tasks_failed_recent_count, and the error in the
+              task's last_error_json.
+            runbook: {{ $runbook }}
+        - alert: FlakeGraphTasksNearAttemptLimit
+          expr: sum by (stage) (cnpg_flakegraph_tasks_near_attempt_limit_count{ {{- $ns -}} }) > 0
+          for: {{ $t.taskAttentionFor }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ `{{ $value }}` }} {{ `{{ $labels.stage }}` }} task(s) are on their last attempt"
+            description: >-
+              Tasks in {{ `{{ $labels.stage }}` }} have been on their final permitted
+              attempt for {{ $t.taskAttentionFor }}. One more failure and they are
+              failed for good, taking their run with them.
+            runbook: {{ $runbook }}
+        - alert: FlakeGraphTaskLeasesExpired
+          expr: sum by (stage) (cnpg_flakegraph_tasks_lease_expired_count{ {{- $ns -}} }) > 0
+          for: {{ $t.taskAttentionFor }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ `{{ $value }}` }} {{ `{{ $labels.stage }}` }} lease(s) have lapsed unreclaimed"
+            description: >-
+              Running tasks in {{ `{{ $labels.stage }}` }} have held an expired lease
+              for {{ $t.taskAttentionFor }}. A worker died mid-task and no worker
+              has since polled to reclaim it, which means the pool is scaled to
+              zero or every replica is stuck.
+            runbook: {{ $runbook }}
+        # One per pool. Demand is expressed the way the ScaledObject reads it:
+        # tasks over a pod's slots, capped at the pool's ceiling. Comparing raw demand
+        # against replicas would fire for the whole of every bulk run, since a
+        # corpus always holds more ready tasks than the pool has a ceiling for.
+        {{- range $poolName, $pool := .Values.workers }}
+        {{- if $pool.enabled }}
+        {{- $deployment := printf "%s-%s" (include "flakegraph.fullname" $) $poolName }}
+        {{- $maxReplicas := include "flakegraph.workerMaxReplicas" (dict "root" $ "name" $poolName "pool" $pool) | int }}
+        - alert: FlakeGraphWorkerDemandUnmet
+          expr: >-
+            clamp_max(
+              ceil(sum(cnpg_flakegraph_worker_demand_desired_workers{ {{- $ns -}}, pool={{ $poolName | quote }}}) / {{ $pool.slots }}),
+              {{ $maxReplicas }}
+            )
+              >
+            sum(kube_deployment_status_replicas_available{ {{- $ns -}}, deployment={{ $deployment | quote }}})
+          for: {{ $t.workerDemandUnmetFor }}
+          labels:
+            severity: warning
+            pool: {{ $poolName }}
+          annotations:
+            summary: The {{ $poolName }} pool has fewer replicas than its demand asks for
+            description: >-
+              Ready work for the {{ $poolName }} pool has wanted {{ `{{ $value }}` }}
+              replicas for {{ $t.workerDemandUnmetFor }} and fewer are available.
+              KEDA should have scaled it within a minute; either the ScaledObject
+              is failing its query, or the new pods cannot be scheduled.
+            runbook: {{ $runbook }}
+        {{- end }}
+        {{- end }}
+{{- end }}

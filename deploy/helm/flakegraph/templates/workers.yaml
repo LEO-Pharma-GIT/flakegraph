@@ -1,0 +1,340 @@
+{{- /*
+Shared object storage makes automatic Kubernetes finalization select Spark. Fail
+at render time when the matching runtime image and RBAC are disabled, instead of
+letting a normal worker discover the missing PySpark capability after a corpus
+has already completed OCR and extraction.
+*/ -}}
+{{- if and .Values.artifactStorage.uri (not .Values.spark.enabled) -}}
+{{- fail "spark.enabled must be true when artifactStorage.uri is configured" -}}
+{{- end -}}
+{{- $root := . -}}
+{{- range $poolName, $pool := .Values.workers }}
+{{- if $pool.enabled }}
+{{- /* The finalize pool is the Spark driver when Spark is on: its image, home and RBAC differ. */ -}}
+{{- $sparkDriver := and (eq $poolName "finalize") $root.Values.spark.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "flakegraph.fullname" $root }}-{{ $poolName }}
+  labels:
+    {{- include "flakegraph.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: worker-{{ $poolName }}
+spec:
+  {{- if $root.Values.autoscaling.enabled }}
+  {{- /*
+  Kubernetes defaults an omitted replica count to one. On a fresh scale-to-zero
+  install that can race KEDA and start a pod just as the autoscaler removes it.
+  Seed only a previously absent Deployment at its declared minimum; once the
+  object exists, omit replicas so Helm cannot fight the HPA during upgrades.
+  */}}
+  {{- $existingDeployment := lookup "apps/v1" "Deployment" $root.Release.Namespace (printf "%s-%s" (include "flakegraph.fullname" $root) $poolName) }}
+  {{- if not $existingDeployment }}
+  replicas: {{ $pool.autoscaling.minReplicas }}
+  {{- end }}
+  {{- else }}
+  replicas: {{ $pool.replicas }}
+  {{- end }}
+  revisionHistoryLimit: {{ $root.Values.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "flakegraph.selectorLabels" (dict "root" $root "component" (printf "worker-%s" $poolName)) | nindent 6 }}
+  strategy:
+    {{- if $sparkDriver }}
+    # Recreate, not a rolling update. A pod in this pool drives a Spark
+    # application whose executors span every node, and it is given a long
+    # grace period so an in-flight finalization can finish. A rolling update
+    # counts a terminating pod as already gone - even with maxSurge 0 it starts
+    # the replacement at once - so the new driver claims the next run while the
+    # old one is still finishing its own, and two applications' executors share
+    # every node until the kernel OOM-kills what it picks. Recreate waits for
+    # the old pod to be gone.
+    type: Recreate
+    {{- else }}
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+    {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "flakegraph.selectorLabels" (dict "root" $root "component" (printf "worker-%s" $poolName)) | nindent 8 }}
+        {{- with $root.Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ $root.Values.config.content | sha256sum }}
+        {{- if or $root.Values.ontology.content $root.Values.ontology.existingConfigMap }}
+        checksum/ontology: {{ $root.Values.ontology.content | sha256sum }}
+        {{- end }}
+        {{- with $root.Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- if $sparkDriver }}
+      serviceAccountName: {{ include "flakegraph.sparkServiceAccountName" $root }}
+      automountServiceAccountToken: true
+      {{- else }}
+      serviceAccountName: {{ include "flakegraph.serviceAccountName" $root }}
+      automountServiceAccountToken: false
+      {{- end }}
+      terminationGracePeriodSeconds: {{ $root.Values.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml $root.Values.podSecurityContext | nindent 8 }}
+      {{- with $root.Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if and (eq $poolName "finalize") $root.Values.scheduling.priorityClasses.enabled }}
+      priorityClassName: {{ include "flakegraph.sparkPriorityClassName" $root }}
+      {{- else if $root.Values.scheduling.priorityClasses.enabled }}
+      priorityClassName: {{ include "flakegraph.workerPriorityClassName" $root }}
+      {{- else }}
+      {{- with $root.Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- end }}
+      {{- with $pool.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $pool.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $pool.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $pool.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # A writable cache volume is required by the read-only runtime, but an
+      # empty mount would hide models preloaded in the image. Seed it once per
+      # pod before the worker starts so offline inference remains immediate.
+      initContainers:
+        - name: seed-provider-cache
+          {{- if $sparkDriver }}
+          image: {{ include "flakegraph.sparkImage" $root }}
+          imagePullPolicy: {{ $root.Values.spark.image.pullPolicy }}
+          {{- else }}
+          image: {{ include "flakegraph.image" $root }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          {{- end }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              if [ -z "$(find /cache -mindepth 1 -print -quit)" ]; then
+                cp -R {{ if $sparkDriver }}/home/spark/.cache/.{{ else }}/home/kgprocessor/.cache/.{{ end }} /cache/;
+              fi
+          resources:
+            requests:
+              cpu: 10m
+              # Copying a preloaded provider cache is mostly filesystem I/O, but
+              # decompression and page-cache accounting can briefly exceed tiny
+              # init-container defaults for production images.
+              memory: 128Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            {{- if $sparkDriver }}
+            runAsUser: 185
+            runAsGroup: 185
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            {{- else }}
+            {{- toYaml $root.Values.containerSecurityContext | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: cache
+              mountPath: /cache
+      containers:
+        - name: worker
+          {{- if $sparkDriver }}
+          image: {{ include "flakegraph.sparkImage" $root }}
+          imagePullPolicy: {{ $root.Values.spark.image.pullPolicy }}
+          command: ["/opt/entrypoint.sh"]
+          {{- else }}
+          image: {{ include "flakegraph.image" $root }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          {{- end }}
+          args:
+            {{- if $sparkDriver }}
+            - /opt/venv/bin/flakegraph
+            {{- end }}
+            - distributed
+            - worker
+            - --config
+            - /etc/flakegraph/{{ $root.Values.config.key }}
+            {{- range $stage := $pool.stages }}
+            - --stage
+            - {{ $stage }}
+            {{- end }}
+          env:
+            {{- include "flakegraph.coordinationEnv" $root | nindent 12 }}
+            {{- if $root.Values.database.cloudNativePG.enabled }}
+            # KEDA runs outside this namespace, so its PostgreSQL scaler uses a
+            # fully qualified CNPG service plus this password instead of the
+            # application Secret's namespace-relative URI.
+            - name: KG_DISTRIBUTED_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.database.secretName }}
+                  key: password
+            {{- end }}
+            - name: KG_DISTRIBUTED_WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: KG_DISTRIBUTED_WORKER_SLOTS
+              value: {{ $pool.slots | quote }}
+            - name: KG_DISTRIBUTED_LEASE_SECONDS
+              value: {{ $root.Values.distributed.leaseSeconds | quote }}
+            - name: KG_DISTRIBUTED_POLL_INTERVAL_SECONDS
+              value: {{ $root.Values.distributed.pollIntervalSeconds | quote }}
+            - name: KG_DISTRIBUTED_RETRY_DELAY_SECONDS
+              value: {{ $root.Values.distributed.retryDelaySeconds | quote }}
+            {{- if or $root.Values.ontology.content $root.Values.ontology.existingConfigMap }}
+            - name: KG_ONTOLOGY_PROFILE
+              value: /etc/flakegraph-ontology/{{ $root.Values.ontology.key }}
+            {{- end }}
+            {{- if $sparkDriver }}
+            - name: KG_DISTRIBUTED_FINALIZATION_ENGINE
+              value: spark
+            - name: KG_DISTRIBUTED_SPARK_MASTER
+              value: {{ $root.Values.spark.master | quote }}
+            - name: KG_DISTRIBUTED_SPARK_IMAGE
+              value: {{ include "flakegraph.sparkImage" $root | quote }}
+            - name: KG_DISTRIBUTED_SPARK_NAMESPACE
+              value: {{ $root.Release.Namespace | quote }}
+            - name: KG_DISTRIBUTED_SPARK_SERVICE_ACCOUNT
+              value: {{ include "flakegraph.sparkServiceAccountName" $root | quote }}
+            - name: KG_DISTRIBUTED_SPARK_EXECUTOR_POD_TEMPLATE
+              value: /etc/flakegraph-spark/executor-pod-template.yaml
+            - name: KG_DISTRIBUTED_SPARK_PROVIDER_SECRET_REFS
+              value: {{ include "flakegraph.sparkProviderSecretRefs" $root | quote }}
+            - name: KG_DISTRIBUTED_SPARK_EXECUTOR_INSTANCES
+              value: {{ $root.Values.spark.executorInstances | quote }}
+            - name: KG_DISTRIBUTED_SPARK_EXECUTOR_CORES
+              value: {{ $root.Values.spark.executorCores | quote }}
+            - name: KG_DISTRIBUTED_SPARK_EXECUTOR_MEMORY
+              value: {{ $root.Values.spark.executorMemory | quote }}
+            - name: KG_DISTRIBUTED_SPARK_EXECUTOR_MEMORY_OVERHEAD
+              value: {{ $root.Values.spark.executorMemoryOverhead | quote }}
+            {{- with $root.Values.spark.providerConcurrency }}
+            - name: KG_GRAPH_FINALIZATION_PROVIDER_CONCURRENCY
+              value: {{ . | quote }}
+            {{- end }}
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # The Spark image's baked cache belongs to native executor UID
+            # 185. The driver runs as UID 1000, so expose its copied writable
+            # cache through a neutral mount instead of another user's home.
+            - name: XDG_CACHE_HOME
+              value: /cache
+            - name: HF_HOME
+              value: /cache/huggingface
+            - name: SENTENCE_TRANSFORMERS_HOME
+              value: /cache/sentence_transformers
+            {{- end }}
+            {{- /*
+            The pipeline is a consumer like any other: it holds a virtual key,
+            its calls are metered beside every interactive tenant, and the
+            gateway's alias is what selects its priority band. Placement across
+            replicas is the endpoint picker's decision, not node affinity's.
+            */ -}}
+            {{- include "flakegraph.consumerEnv" $root | nindent 12 }}
+            {{- with $root.Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- include "flakegraph.providerSecretEnv" $root | nindent 12 }}
+          resources:
+            {{- toYaml $pool.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $root.Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/flakegraph
+              readOnly: true
+            {{- if or $root.Values.ontology.content $root.Values.ontology.existingConfigMap }}
+            - name: ontology
+              mountPath: /etc/flakegraph-ontology
+              readOnly: true
+            {{- end }}
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              {{- if $sparkDriver }}
+              mountPath: /cache
+              {{- else }}
+              mountPath: /home/kgprocessor/.cache
+              {{- end }}
+            {{- if $sparkDriver }}
+            - name: spark-executor-template
+              mountPath: /etc/flakegraph-spark
+              readOnly: true
+            {{- end }}
+            {{- if $root.Values.storage.input.existingClaim }}
+            - name: input
+              mountPath: /data/input
+              readOnly: {{ $root.Values.storage.input.readOnly }}
+            {{- end }}
+            - name: output
+              # LocalArtifactsWriter publishes atomically through a sibling
+              # temporary directory, so the writable boundary is /data rather
+              # than only the final /data/output directory.
+              mountPath: /data
+            {{- with $root.Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "flakegraph.configMapName" $root }}
+        {{- if or $root.Values.ontology.content $root.Values.ontology.existingConfigMap }}
+        - name: ontology
+          configMap:
+            name: {{ include "flakegraph.ontologyConfigMapName" $root }}
+        {{- end }}
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          {{- if $root.Values.storage.cache.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ $root.Values.storage.cache.existingClaim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if $sparkDriver }}
+        - name: spark-executor-template
+          configMap:
+            name: {{ include "flakegraph.fullname" $root }}-spark-executor-template
+        {{- end }}
+        {{- if $root.Values.storage.input.existingClaim }}
+        - name: input
+          persistentVolumeClaim:
+            claimName: {{ $root.Values.storage.input.existingClaim }}
+        {{- end }}
+        - name: output
+          {{- if $root.Values.storage.output.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ $root.Values.storage.output.existingClaim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- with $root.Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- end }}
+{{- end }}

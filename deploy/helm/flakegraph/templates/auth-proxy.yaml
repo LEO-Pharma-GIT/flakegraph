@@ -1,0 +1,360 @@
+{{- if and .Values.ingress.enabled .Values.ingress.authProxy.enabled }}
+{{- $proxy := .Values.ingress.authProxy }}
+{{- $ingress := .Values.ingress }}
+{{- $authHost := printf "%s.%s" $proxy.host $ingress.domain }}
+{{- /*
+The header is proof of identity only while nothing but the ingress controller
+can reach the pods behind the gate. Without the policy any workload in the
+cluster may address a Service directly and set it to whoever it likes, so the
+gate is refused rather than rendered unsound. The check lives with the gate,
+not with one of its consumers, so it holds for Grafana on its own too.
+*/}}
+{{- if not .Values.controlPlane.networkPolicy.enabled }}
+{{- fail "ingress.authProxy.enabled needs controlPlane.networkPolicy.enabled: behind the gate the control plane and Grafana trust X-Auth-Request-Email, which is proof only when nothing but the ingress controller can reach them. Name your controller in controlPlane.networkPolicy.from." }}
+{{- end }}
+{{- /*
+The gate is the controller's authentication hook, and a plain Ingress has
+none: on `none` there is no object that could carry it, so refusing here is
+the only way the console does not end up published open.
+*/}}
+{{- if not (has $ingress.controller (list "traefik" "nginx")) }}
+{{- fail (printf "ingress.authProxy.enabled needs ingress.controller=traefik or nginx; %q has no authentication hook to express the gate with." $ingress.controller) }}
+{{- end }}
+{{- $traefik := eq $ingress.controller "traefik" }}
+{{- if $traefik }}
+{{- include "flakegraph.requireApi" (dict "root" . "api" "traefik.io/v1alpha1/Middleware" "feature" "ingress.authProxy.enabled with ingress.controller=traefik" "install" "Traefik with its CRDs") }}
+{{- end }}
+{{- /*
+One gate in front of every routed service, rather than an identity integration
+per application.
+
+The alternative is each application speaking OIDC itself, which works only for
+applications that can - and leaves the ones that cannot, such as a machine API,
+with no answer at all. It also makes the weakest application's authentication
+the deployment's authentication: a proxy that keeps a password login beside its
+SSO is a bypass, and an upstream that meters authenticated users caps the whole
+deployment. A gate in front is one integration, protects whatever is behind it,
+and does not inherit either problem.
+
+Workers reach these services by their in-cluster Service names, not through the
+ingress, so nothing here is on the pipeline's path.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "flakegraph.authProxyName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: auth-proxy
+spec:
+  replicas: {{ $proxy.replicas }}
+  selector:
+    matchLabels:
+      {{- include "flakegraph.selectorLabels" (dict "root" . "component" "auth-proxy") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "flakegraph.selectorLabels" (dict "root" . "component" "auth-proxy") | nindent 8 }}
+    spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: auth-proxy
+          image: {{ printf "%s:%s" $proxy.image.repository $proxy.image.tag | quote }}
+          imagePullPolicy: {{ $proxy.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          args:
+            - --provider=oidc
+            # The issuer is named by the operator. Nothing here is specific to
+            # any identity provider.
+            - --oidc-issuer-url={{ $proxy.oidc.issuerUrl }}
+            - --client-id={{ $proxy.oidc.clientId }}
+            - --http-address=0.0.0.0:4180
+            - --redirect-url=https://{{ $authHost }}/oauth2/callback
+            # One cookie for the whole domain, so signing in once covers every
+            # host behind the gate rather than once per service.
+            - --cookie-domain={{ printf ".%s" $ingress.domain }}
+            - --whitelist-domain={{ printf ".%s" $ingress.domain }}
+            - --email-domain={{ $proxy.emailDomain }}
+            # Behind the ingress controller: trust the X-Forwarded-* headers
+            # it sets, and answer /oauth2/auth rather than proxying the request
+            # itself. Sound only because the NetworkPolicy above admits nothing
+            # but that controller; from anywhere else those headers would be a
+            # client's to set.
+            - --reverse-proxy=true
+            # No upstream: in forwardAuth the gate answers /oauth2/auth and
+            # never proxies the request, so it has nothing to forward to. A
+            # static upstream is rejected here as a fatal misconfiguration
+            # rather than ignored, and is not needed in the first place.
+            - --set-xauthrequest=true
+            - --skip-provider-button=true
+            # oauth2-proxy defaults to approval_prompt=force, which asks the
+            # issuer to re-consent on every sign-in; some issuers (Microsoft
+            # Entra ID among them) refuse a consent prompt they did not
+            # configure. select_account is accepted everywhere.
+            - --prompt=select_account
+            - --cookie-secure=true
+            # A browser does not make one request per page: it makes the
+            # navigation and then the favicon, the stylesheet, the websocket.
+            # Before sign-in every one of those is refused and handed its own
+            # redirect, and with a single fixed cookie name each redirect
+            # overwrites the last one's CSRF nonce. The viewer returns from the
+            # issuer holding a nonce belonging to a favicon request, the state
+            # does not match, and the sign-in is rejected as an attack. One
+            # cookie per flow keeps each redirect's nonce with the redirect it
+            # belongs to.
+            - --cookie-csrf-per-request=true
+            - --cookie-csrf-expire=5m
+            # One cookie per flow, unbounded, is a request header that grows
+            # with every refused request until the edge answers 431 and the
+            # viewer is locked out for as long as the cookies live. A page with
+            # its assets needs a handful; the oldest beyond that are dropped.
+            - --cookie-csrf-per-request-limit=8
+            # Keep the identity out of the cookie. An issuer that returns a large
+            # id_token pushes the session past the 4kb cookie limit, and the
+            # split cookies that follow do not survive the round trip - the user
+            # authenticates successfully and is then sent back to sign in, for
+            # ever. The gate only needs to know who the viewer is, not to carry
+            # their tokens to the upstream.
+            - --session-cookie-minimal=true
+            {{- if $proxy.bearerTokens.enabled }}
+            # A verified access token for this client is a session of its own.
+            - --skip-jwt-bearer-tokens=true
+            {{- end }}
+            {{- range $proxy.skipAuthRoutes }}
+            - --skip-auth-route={{ . }}
+            {{- end }}
+            {{- with $proxy.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $proxy.existingSecret }}
+                  key: {{ $proxy.clientSecretKey }}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $proxy.existingSecret }}
+                  key: {{ $proxy.cookieSecretKey }}
+          ports:
+            - name: http
+              containerPort: 4180
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            periodSeconds: 30
+          resources:
+            {{- toYaml $proxy.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "flakegraph.authProxyName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: auth-proxy
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "flakegraph.selectorLabels" (dict "root" . "component" "auth-proxy") | nindent 4 }}
+  ports:
+    - name: http
+      port: 4180
+      targetPort: http
+      protocol: TCP
+{{- if $traefik }}
+---
+# Every identity-shaped request header a client may have sent, removed before
+# the gate runs. forwardAuth copies X-Auth-Request-* from the gate's answer
+# onto the request, but only the ones it names, and it does not touch the
+# X-Forwarded-* family at all; a signed-in viewer could otherwise add one and
+# be read as somebody else by anything downstream that trusts it. First in
+# the gated chain, and the whole chain on the machine-key route, so a request
+# reaches a service carrying identity only when the gate put it there. An
+# empty value is how Traefik spells "delete".
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "flakegraph.stripIdentityName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+spec:
+  headers:
+    customRequestHeaders:
+      X-Auth-Request-User: ""
+      X-Auth-Request-Email: ""
+      X-Auth-Request-Preferred-Username: ""
+      X-Auth-Request-Groups: ""
+      X-Auth-Request-Access-Token: ""
+      X-Forwarded-User: ""
+      X-Forwarded-Email: ""
+      X-Forwarded-Preferred-Username: ""
+      X-Forwarded-Groups: ""
+      X-Forwarded-Access-Token: ""
+---
+# Ask the gate about every request. It answers 202 or 401 without the request
+# body ever reaching it.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "flakegraph.authProxyName" . }}-auth
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+spec:
+  forwardAuth:
+    # Fully qualified: the ingress controller resolves this from its own
+    # namespace, not from the Middleware's, so a bare Service name looks up
+    # in kube-system and fails.
+    address: http://{{ include "flakegraph.authProxyName" . }}.{{ .Release.Namespace }}.svc.cluster.local:4180/oauth2/auth
+    trustForwardHeader: true
+    # The console reads who the viewer is from these and only these; groups
+    # are what it maps to roles.
+    authResponseHeaders:
+      - X-Auth-Request-User
+      - X-Auth-Request-Email
+      - X-Auth-Request-Preferred-Username
+      - X-Auth-Request-Groups
+      - Set-Cookie
+---
+# A bare 401 leaves a browser showing an error rather than a sign-in page, so a
+# refusal is rewritten into a redirect the browser will follow. Only 401: the
+# middleware wraps the service as well as the gate, and the console answers
+# 403 itself when a signed-in person opens a graph that is not theirs - that
+# answer has to reach the page, not be replaced by the sign-in page.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "flakegraph.authProxyName" . }}-errors
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+spec:
+  errors:
+    status:
+      - "401"
+    service:
+      name: {{ include "flakegraph.authProxyName" . }}
+      port: 4180
+    query: "/oauth2/sign_in?rd={url}"
+    statusRewrites:
+      "401": 302
+{{- end }}
+---
+# The sign-in and callback endpoints must reach the gate itself, and must not be
+# behind it - a gate that guards its own sign-in page cannot be signed in to.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "flakegraph.authProxyName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+  {{- with $ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if $ingress.tls.secretName }}
+  tls:
+    - secretName: {{ $ingress.tls.secretName }}
+      hosts:
+        - {{ $authHost | quote }}
+        {{- range $name, $host := $ingress.hosts }}
+        - {{ printf "%s.%s" $host $ingress.domain | quote }}
+        {{- end }}
+        {{- if $.Values.monitoring.enabled }}
+        - {{ printf "%s.%s" $.Values.monitoring.grafana.host $ingress.domain | quote }}
+        {{- end }}
+  {{- end }}
+  rules:
+    - host: {{ $authHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "flakegraph.authProxyName" . }}
+                port:
+                  number: 4180
+    {{- /*
+    The trailing separator is load-bearing. Traefik prefix-matches the raw
+    string, so a rule for `/oauth2` also captures `/oauth2callback` - which is
+    an application's own path, not the gate's, and routing it here sends the
+    viewer back to sign in at the moment they finish signing in.
+    */}}
+    {{- $gatedHosts := list }}
+    {{- range $name, $host := $ingress.hosts }}
+    {{- $gatedHosts = append $gatedHosts $host }}
+    {{- end }}
+    {{- if $.Values.monitoring.enabled }}
+    {{- /* Grafana is gated the same way, so its sign-in lands on its host too. */}}
+    {{- $gatedHosts = append $gatedHosts $.Values.monitoring.grafana.host }}
+    {{- end }}
+    {{- range $host := $gatedHosts }}
+    - host: {{ printf "%s.%s" $host $ingress.domain | quote }}
+      http:
+        paths:
+          - path: /oauth2/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "flakegraph.authProxyName" $ }}
+                port:
+                  number: 4180
+    {{- end }}
+{{- if and $traefik .Values.ingress.authProxy.machineKeys.enabled .Values.controlPlane.enabled }}
+{{- include "flakegraph.requireApi" (dict "root" . "api" "traefik.io/v1alpha1/IngressRoute" "feature" "ingress.authProxy.machineKeys.enabled" "install" "Traefik with its CRDs") }}
+---
+# A machine reaching the console's API with one of its own keys never passes
+# the gate, so nothing vouches for the identity headers it might carry; the
+# identity strip removes them so a key holder cannot claim to be anyone, and
+# the console authenticates the key itself. The route matches the console's
+# host, its API paths, and a request that presents a key; its priority puts
+# it ahead of the gated `/` rule for the same host, which matches everything
+# else. See ingress.authProxy.machineKeys in values.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "flakegraph.fullname" . }}-machine-api
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: >-
+        Host(`{{ printf "%s.%s" $ingress.hosts.controlPlane $ingress.domain }}`)
+        && PathPrefix(`/api/`)
+        && (HeaderRegexp(`Authorization`, `^Bearer fg_`) || HeaderRegexp(`X-Flakegraph-Api-Key`, `^fg_`))
+      priority: 1000
+      middlewares:
+        - name: {{ include "flakegraph.stripIdentityName" . }}
+        {{- if .Values.ingress.compression.enabled }}
+        - name: {{ include "flakegraph.compressionName" . }}
+        {{- end }}
+      services:
+        - name: {{ include "flakegraph.controlPlaneName" . }}
+          port: {{ .Values.controlPlane.service.port }}
+  {{- if $ingress.tls.secretName }}
+  tls:
+    secretName: {{ $ingress.tls.secretName }}
+  {{- end }}
+{{- end }}
+{{- end }}

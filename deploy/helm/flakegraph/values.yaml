@@ -1,0 +1,1516 @@
+# FlakeGraph application image: workers, the console, the parsing pool, the OCR
+# shim, and the engine sidecar all run it. The release workflow
+# (.github/workflows/publish.yml) publishes a multi-architecture image for every
+# v* tag; a fork points this at its own registry. Pin a digest in production so
+# every architecture runs the exact image that passed validation.
+image:
+  repository: ghcr.io/leo-pharma-r-d-data-analytics/flakegraph
+  # Empty follows the chart's appVersion, which is the release the chart was
+  # published with. Release tags are immutable, so nodes may keep what they
+  # pulled; a digest above the tag makes the pin byte-exact.
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# A public, non-secret FlakeGraph YAML document is mounted at this path. Set
+# existingConfigMap to use a separately managed object, or provide content here.
+# For a file on disk, pass `--set-file config.content=path/to/config.yaml` to
+# Helm; values files do not resolve another YAML document by filename.
+config:
+  existingConfigMap: ""
+  key: config.yaml
+  content: |
+    runtime:
+      runtime: kubernetes
+    job:
+      graph_id: flakegraph
+    files:
+      source: local
+      input_path: /data/input
+    ocr:
+      # Born-digital PDFs are extracted in the worker; only what that cannot read
+      # is sent to the parsing pool, through the shim that holds and orders it.
+      provider: fallback
+      fallback_primary_provider: builtin_text
+      fallback_secondary_provider: mineru_api
+      mineru_api_url: ${KG_MINERU_API_URL}
+      mineru_api_key: ${KG_MINERU_API_KEY}
+      # A scanned document is held by the shim for up to an hour
+      # (documentParsing.shim.requestTimeoutSeconds); the worker has to wait
+      # at least that long, or it gives up on a parse the pool then finishes
+      # for nobody and retries it from the start.
+      timeout_seconds: 3600
+    llm:
+      # vllm_local rather than openai_compatible: the adapter disables the chat
+      # template's free-form reasoning before strict JSON generation. vLLM counts
+      # that reasoning against the completion budget, so leaving it on exhausts
+      # the budget before an object is produced. The endpoint is the gateway; the
+      # engine behind it is still vLLM, which is what this selection describes.
+      provider: vllm_local
+      endpoint: ${KG_LLM_ENDPOINT}
+      model: ${KG_LLM_MODEL}
+      api_key: ${KG_LLM_API_KEY}
+    embedding:
+      provider: openai_compatible
+      endpoint: ${KG_EMBED_ENDPOINT}
+      model: ${KG_EMBED_MODEL}
+      api_key: ${KG_EMBED_API_KEY}
+    writer:
+      provider: local_artifacts
+      output_path: /data/output
+    cache:
+      provider: none
+
+# Optional ontology content is mounted independently from the processing config.
+# This keeps one config portable between a submitter checkout and container paths.
+# Pass `--set-file ontology.content=path/to/ontology.yaml`, or reference a ConfigMap
+# that already contains `ontology.key`.
+ontology:
+  existingConfigMap: ""
+  key: ontology.yaml
+  content: ""
+
+# Every Secret the chart references is created by the operator, never by the
+# chart, and a missing one surfaces as a pod stuck in ContainerCreating or a
+# CreateContainerConfigError long after the install reported success. This
+# pre-install hook lists each Secret and key the selected features need and
+# refuses the install while any is absent, naming them. The chart's README
+# enumerates the same list.
+secretsCheck:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# The database secret must expose a PostgreSQL URI under the selected key. A
+# CloudNativePG application secret uses `uri`, which is the default below.
+database:
+  secretName: flakegraph-postgres-app
+  secretKey: uri
+  # A Helm hook applies FlakeGraph's idempotent coordination schema before the
+  # release is considered ready. This avoids relying on an autoscaled worker to
+  # create the PostgreSQL view that KEDA itself needs to discover worker demand.
+  bootstrap:
+    enabled: true
+    activeDeadlineSeconds: 900
+    backoffLimit: 8
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+  # A CloudNativePG Cluster declared by the chart. Needs the CloudNativePG
+  # operator on the cluster; the chart refuses to render it where the
+  # operator's CRDs are absent. A managed PostgreSQL service works just as
+  # well: leave this off and point database.secretName at a Secret holding
+  # its URI.
+  cloudNativePG:
+    enabled: false
+    clusterName: flakegraph-postgres
+    instances: 3
+    # The PostgreSQL image, pinned by the deployment so a security release
+    # does not wait for an operator upgrade. Empty follows the operator's
+    # default. A minor-version change restarts the instances one at a time,
+    # standbys first, then a switchover.
+    imageName: ""
+    # Covers the documented 20-node worker ceilings, KEDA polling, Spark drivers,
+    # and operator access without running against PostgreSQL's 100-session default.
+    maxConnections: 300
+    database: flakegraph
+    owner: flakegraph
+    storage:
+      # A 250,000-document corpus can produce several million durable tasks and
+      # artifact references before retention. Leave room for indexes, retries,
+      # autovacuum, and one overlapping graph version; smaller installations may
+      # override this when CloudNativePG is explicitly enabled.
+      size: 100Gi
+      storageClass: ""
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+    nodeSelector: {}
+    tolerations: []
+    # The operator always keeps instances off a shared node; "required" makes
+    # that a scheduling rule rather than a preference, so a standby can never
+    # land beside the primary when nodes are short. Spread constraints apply
+    # to the instance pods, for example across power or rack domains.
+    podAntiAffinityType: preferred
+    topologySpreadConstraints: []
+
+# Provider credentials belong in one operator-managed Secret. Provider endpoints,
+# models, and other non-secret behavior remain in FlakeGraph configuration so an
+# unrelated Secret key cannot silently replace a reviewed processing profile.
+# Map each permitted key explicitly; never put credential values in Helm values.
+providerSecret:
+  name: flakegraph-providers
+  optional: false
+  env:
+    - name: KG_LLM_API_KEY
+      key: KG_LLM_API_KEY
+      optional: true
+    - name: KG_EMBED_API_KEY
+      key: KG_EMBED_API_KEY
+      optional: true
+    - name: KG_SNOWFLAKE_PASSWORD
+      key: KG_SNOWFLAKE_PASSWORD
+      optional: true
+    - name: KG_SNOWFLAKE_OAUTH_TOKEN
+      key: KG_SNOWFLAKE_OAUTH_TOKEN
+      optional: true
+    # The S3-compatible source reads through the SDK's own credential chain.
+    - name: AWS_ACCESS_KEY_ID
+      key: AWS_ACCESS_KEY_ID
+      optional: true
+    - name: AWS_SECRET_ACCESS_KEY
+      key: AWS_SECRET_ACCESS_KEY
+      optional: true
+
+# Shared object storage is the distributed data plane. PostgreSQL retains task
+# metadata and checksums; workers and Spark executors transfer payloads directly.
+artifactStorage:
+  uri: ""
+  endpointUrl: ""
+  existingSecret: ""
+  accessKeyKey: access-key-id
+  secretKeyKey: secret-access-key
+  region: us-east-1
+
+# Spark finalization is opt-in unless artifact storage is configured by an
+# environment-specific values file. The image is built with Dockerfile.spark and
+# published beside the application image; an empty tag follows the chart's
+# appVersion the same way image.tag does.
+spark:
+  enabled: false
+  image:
+    repository: ghcr.io/leo-pharma-r-d-data-analytics/flakegraph-spark
+    tag: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  master: k8s://https://kubernetes.default.svc
+  executorInstances: 4
+  executorCores: 4
+  executorMemory: 8g
+  # Covers Python workers, local embedding models, and native libraries outside
+  # the JVM heap. The default deliberately matches the heap because Spark's
+  # conventional 10% overhead is insufficient for Python ML inference.
+  executorMemoryOverhead: 8g
+  # Model and embedding calls finalization keeps in flight across every
+  # executor: graph.finalization_provider_concurrency. Each executor core runs
+  # this divided by executorInstances x executorCores at once, rounded down and
+  # at least one, so set a multiple of that slot count near the sequences the
+  # serving plane runs (replicas x maxNumSeqs). Null leaves the configured value.
+  providerConcurrency: null
+  nodeSelector: {}
+  topologyKey: kubernetes.io/hostname
+  executorPodSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 185
+    runAsGroup: 185
+    seccompProfile:
+      type: RuntimeDefault
+  executorContainerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+  serviceAccount:
+    # The empty chart-managed name resolves to <release>-flakegraph-spark.
+    # Set create=false with a name to bind an account managed outside this chart.
+    create: true
+    name: ""
+
+# Optional local model serving. When enabled, the chart runs one pinned engine
+# per replica behind an authenticating sidecar, and the gateway places traffic
+# across them. Embeddings remain independently configurable because a generative
+# model is not an embedding model. One persistent model cache and GPU belong to
+# each replica.
+#
+# The defaults describe a portable profile: one bf16 dense checkpoint on one
+# discrete GPU of an Ampere or newer generation, with nothing that depends on a
+# particular vendor build, kernel, or memory architecture. A cluster with
+# different hardware overrides the sizing block below and re-derives the
+# sequence limit with `flakegraph serving sizing`; deploy/examples/ carries a
+# complete worked profile for a unified-memory DGX Spark fleet.
+modelServing:
+  enabled: false
+  runtime: vllm
+  replicas: 1
+  # vLLM mainline. The tag is a multi-architecture index, so the same values
+  # pull the right build on amd64 and arm64 nodes alike. Pin a digest to make
+  # the pull byte-exact; pin the *index* digest rather than one architecture's
+  # manifest, or a mixed fleet refuses to pull on the other architecture.
+  image:
+    repository: vllm/vllm-openai
+    tag: "v0.32.0"
+    digest: ""
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  model:
+    # Apache-2.0, bf16, dense, natively supported by transformers: it loads on
+    # any GPU with enough memory and needs no remote code and no quantization
+    # kernel a given build might lack.
+    name: Qwen/Qwen3-8B
+    # Pin the Hugging Face commit so model weights, tokenizer, and bundled chat
+    # template cannot change underneath an otherwise identical deployment. The
+    # schema requires a full commit hash: a branch or tag name is a moving
+    # target, which is what the pin exists to prevent.
+    revision: b968826d9c46dd6066d109eabc6255188de91218
+  # Public models work without a token. Configure an existing Secret to raise
+  # Hub rate limits or access an operator-approved gated/private replacement.
+  huggingFaceTokenSecret:
+    name: ""
+    key: HF_TOKEN
+    optional: true
+  server:
+    tensorParallelSize: 1
+    # The share of the device the engine may allocate. On a discrete GPU the
+    # rest is headroom for CUDA graphs and the driver, and nine tenths is the
+    # engine's own default. On a unified-memory part the same pool holds the
+    # operating system, the kubelet and every other pod, and this has to drop
+    # to what the node can spare - about half in the DGX Spark example.
+    gpuMemoryUtilization: 0.90
+    # The size, in gibibytes, of the memory pool one device draws from when
+    # that pool is the node's own RAM. On a discrete GPU leave it at zero: the
+    # engine's allocation lives in device memory the kubelet never hands out,
+    # and the resource block below stands as written. On a unified-memory part
+    # the allocation comes out of the same RAM every other pod is scheduled
+    # against, while appearing in neither the pod's cgroup nor the kubelet's
+    # accounting - so the scheduler reads a full node as empty and packs it
+    # until the kernel OOM-kills whatever it picks, the datastore included.
+    # Naming the pool here charges gpuMemoryUtilization of it, per device, to
+    # the engine's memory request, which is what keeps the scheduler honest.
+    unifiedMemoryPerDeviceGi: 0
+    # The default model's native context. Raise it only with a checkpoint that
+    # supports the longer window, and re-derive the sequence limit with it.
+    maxModelLen: 32768
+    maxNumBatchedTokens: 16384
+    # Must stay below the max_concurrent the sizing block implies. The sidecar
+    # recomputes that at startup and refuses to serve if this crosses it: an
+    # engine that runs out of KV blocks preempts a *running* request and
+    # evicts the lowest-priority one, which is batch work, mid-flight, against
+    # policy. Sixteen sits under the 23 the default sizing block implies.
+    maxNumSeqs: 16
+    # Empty means: read the quantization scheme from the checkpoint, which is
+    # right for every checkpoint that declares one and for a bf16 checkpoint
+    # that declares none. Naming a scheme the checkpoint does not carry is a
+    # startup failure rather than a silent fallback.
+    quantization: ""
+    # "auto" keeps the KV cache in the model's own dtype. "fp8" halves it on
+    # hardware with FP8 support; the sizing block charges per-token bytes by
+    # this value, so change both together.
+    kvCacheDtype: auto
+    # Empty lets the engine pick the attention and MoE kernels for the platform
+    # it finds. Naming one that the build does not carry is a startup failure.
+    attentionBackend: ""
+    moeBackend: ""
+    # Which loader reads the weights off the volume. Empty means the engine's
+    # own default. Loaders that stage weights outside the torch allocator are
+    # charged to the KV budget without appearing in the engine's own "Model
+    # loading took" figure, so a change here is a change to the sizing block.
+    loadFormat: ""
+    # Whether the engine may execute Python shipped inside the checkpoint.
+    # Off: the default model is a native transformers architecture, and a
+    # checkpoint that needs this is asking for code execution on the node.
+    # Turn it on deliberately, for a checkpoint whose code has been read.
+    trustRemoteCode: false
+    # How the engine separates reasoning from the answer and parses tool calls.
+    # Both are properties of the checkpoint's chat template, not of the chart:
+    # qwen3 and hermes are what the default model speaks, and a different model
+    # names its own parsers here. Empty omits the flag.
+    reasoningParser: qwen3
+    toolCallParser: hermes
+    # Lets a caller send tool_choice=auto. Only meaningful with a tool-call
+    # parser, and the engine refuses to start with it and no parser named.
+    enableAutoToolChoice: true
+    # Multimodal input. The default model is text-only, so the map is empty and
+    # no limit is rendered. A vision-language checkpoint names its modalities
+    # here (`image: 2`, `video: 0`); zero closes a modality rather than merely
+    # leaving it unused, so a caller cannot spend the engine's memory on one.
+    # Serving images is not free: the encoder's weights and activations come
+    # out of the same device budget as the KV cache, and the sizing block does
+    # not model that reservation, so set maxNumSeqs with margin below the
+    # figure it implies and let the sidecar's startup check remain the guard.
+    limitMultimodalPerPrompt: {}
+    # Skips the encoder profiling of a multimodal checkpoint served text-only.
+    skipMultimodalProfiling: false
+    # Speculative decoding. Zero disables it, which is the portable default:
+    # the right drafter, block size, and acceptance rate depend on the model
+    # and the hardware, and are settled with a benchmark on the machine in
+    # hand rather than shipped as a guess. Decode on a bandwidth-bound part is
+    # where a drafter pays; the DGX Spark example carries a benchmarked one.
+    speculativeTokens: 0
+    # Which drafter proposes those tokens, when speculativeTokens is set.
+    # "mtp" needs no download: the head travels inside a checkpoint that
+    # carries one. Others need a separate draft model, named below, and a
+    # build that registers the architecture. Required when tokens are set.
+    speculativeMethod: ""
+    # Empty means the drafter lives in the target checkpoint. A path or a hub
+    # id names a separate one. Pin the revision when this is a hub id, for the
+    # same reason the target's is pinned; leave it empty when this is a
+    # filesystem path, which has no Hub commit for a revision to refer to.
+    speculativeDraftModel: ""
+    speculativeDraftRevision: ""
+    # A draft model named as a filesystem path has to *get* onto that filesystem.
+    # Naming it is not obtaining it: a replica scheduled onto a node where nobody
+    # has placed the file starts, fails to load, and crash-loops with an error
+    # about an invalid repository id - which reads like a typo rather than a
+    # missing artifact. So the chart declares where the model comes from, and
+    # refuses to render when a path is named with no way to satisfy it.
+    draftModelSeed:
+      # An image whose filesystem carries the draft model. Each replica copies it
+      # into its own volume before the engine starts, so a new node needs nothing
+      # placed on it by hand.
+      image: ""
+      pullPolicy: IfNotPresent
+      # Where the model sits inside that image.
+      sourcePath: /draft-model
+      # Set instead when the model arrives some other way - a shared mount, a
+      # prebaked node image. Saying so is how the chart tells "provided by other
+      # means" apart from "nobody has provided it".
+      providedExternally: false
+    # The MoE kernel the drafter itself uses. Empty omits the key, which is what
+    # a dense draft model wants. It only means anything for a drafter that is
+    # itself a mixture of experts, such as a target checkpoint's own MTP head.
+    speculativeMoeBackend: ""
+    # The engine binds loopback on this port; nothing outside the pod reaches it.
+    enginePort: 8001
+    # vLLM reports anonymous usage statistics to its maintainers by default.
+    # Off, because a deployment's existence is not the engine's to report; a
+    # site that wants to contribute them turns this on knowingly.
+    usageStats: false
+  # Attention geometry and device memory are declared, never discovered, so the
+  # same manifests are correct on a cluster this chart has never seen, and the
+  # sidecar can refuse a sequence limit the KV budget does not support.
+  #
+  # The numbers below are a worked example, not a discovery: the default model
+  # (Qwen3-8B: 8 KV heads, head_dim 128, 36 full-attention layers, 15.3 GiB of
+  # bf16 weights, no recurrent layers) on one 80 GB device such as an A100 or
+  # H100 at the utilisation above. That gives
+  #
+  #   kv_bytes_per_token = 2 x 8 x 128 x 36 x 2 bytes  = 147,456
+  #   bytes_per_sequence = 147,456 x 16,384 tokens     = 2.25 GiB
+  #   kv_budget          = 80 x 0.90 - 15.3 - 4        = 52.7 GiB
+  #   max_concurrent     = 52.7 / 2.25                 = 23
+  #
+  # so maxNumSeqs 16 binds first. Re-derive every line for a different model,
+  # device, or context (`flakegraph serving sizing --help` prints the formula),
+  # and take the KV figure the engine itself reports after profiling as the
+  # final word. A hybrid checkpoint with linear-attention layers also charges
+  # a fixed recurrent state per sequence, which the recurrent* keys describe.
+  sizing:
+    kvHeads: 8
+    headDim: 128
+    attentionLayers: 36
+    recurrentLayers: 0
+    recurrentStateBytesPerLayer: 0
+    recurrentStateSlotsPerSequence: 1
+    # What the engine reports as "Model loading took": the target checkpoint
+    # and any resident draft model together, not the target alone.
+    weightsGiB: 15.3
+    deviceMemoryGiB: 80
+    overheadGiB: 4.0
+    expectedContextTokens: 16384
+  # Publishing KV-cache events lets the endpoint picker route on what a replica
+  # actually holds. With this off it falls back to hashing prefixes instead.
+  kvEvents:
+    enabled: true
+    port: 5557
+    replayPort: 5558
+    # Must match the engine's --block-size. vLLM's default is 16, and the
+    # picker hashes blocks of this many tokens to compare against the
+    # events - a mismatch hashes differently sized blocks, which agree
+    # about nothing while reporting no error.
+    blockSizeTokens: 16
+  # The enforcement floor. Its Secret maps bearer keys to consumer classes; the
+  # bands are the values stamped for each class. Lower is served first, so an
+  # unstamped request would arrive at the *highest* priority — which is why the
+  # sidecar stamps unconditionally and an unknown class resolves to the largest
+  # band here.
+  sidecar:
+    # The sidecar is the one container in the engine pod built from the
+    # application image, so a release of the application would otherwise roll
+    # every engine - an hour of reduced capacity, and every open conversation
+    # cut. Pinning the tag it runs holds the engines still through releases
+    # that change nothing about it; empty follows image.tag.
+    imageTag: ""
+    keySecret:
+      name: flakegraph-serving-keys
+      key: serving-keys.json
+    bands:
+      interactive: 0
+      dev: 10
+      batch: 100
+    # Interactive-first admission. Priority decides who enters the scheduler
+    # first; it does not decide what shares each scheduler step with a reply
+    # once it is running, and a step that also carries thousands of tokens of
+    # batch prefill takes seconds during which the person's stream gets
+    # nothing. So, while any request of a class not listed here is in flight
+    # on an engine, new generation requests of the listed classes wait in the
+    # sidecar. Held calls still awaiting upstream response headers are cancelled
+    # and receive 503 with Retry-After: 0; callers retry within their retry budget.
+    # Waiting calls are released when the reply has fully left; past holdSeconds one
+    # is let through every trickleSeconds so a long agentic session keeps
+    # its engine mostly to itself without stopping batch there outright.
+    # An empty list disables the gate.
+    interactiveFirst:
+      heldClasses: [batch]
+      holdSeconds: 90
+      trickleSeconds: 5
+  # Keep machines ready for people, and give the rest to batch work.
+  # A single batch sequence beside a reply cuts its streaming rate to less than
+  # a third on a compute-bound part, so the sidecar cancels the batch on an
+  # engine when a person's request reaches it. Every engine runs batch work while nobody is being answered;
+  # once someone is, the balancer keeps `standby` more machines clear for the
+  # next arrival. Nothing restarts: it sets each engine's batch admission,
+  # which takes effect at once and lapses on its own if the balancer stops.
+  balancer:
+    enabled: false
+    # Machines kept clear for the next arrival while people are using the
+    # fleet. This is the dial.
+    standby: 1
+    # Empty follows the sidecar's pin, which is right when both move
+    # together. Set it to ship a balancer-only change without reloading a
+    # checkpoint on every engine: the balancer is one stateless Deployment,
+    # and the caps it has set expire on their own while it restarts.
+    imageTag: ""
+    # A ceiling on everything reserved at once, so a burst of people cannot
+    # stop the pipeline. At least one machine always stays with batch work.
+    maxReserved: 4
+    # How long a machine stays reserved after the last interactive request.
+    # Agentic sessions are bursty, and a machine re-cleared on every pause
+    # between turns is a machine cleared continuously.
+    cooldownSeconds: 600
+    # How long people must be sharing machines before an extra one is kept
+    # ready, and how long of no sharing before that extra is given back.
+    growAfterSeconds: 60
+    decayAfterSeconds: 1800
+    intervalSeconds: 5
+    # How much of a standby's cap must be left before it is renewed. The cap
+    # expires on its own so a dead balancer cannot hold batch back for ever,
+    # so a live one has to keep saying so; generous against that expiry, so a
+    # few missed passes do not cost the machine people are waiting on.
+    renewBeforeSeconds: 120
+    # Route by the lanes the balancer labels. Without them the reservation
+    # holds batch off a machine that routing never sends anybody to: chat
+    # requests land elsewhere and the reserved engine becomes the busiest one.
+    # Needs the picker's Alpha header-label-affinity scorer; see
+    # gateway-placement.yaml.
+    lanes:
+      enabled: true
+    # Which lane an engine joins while someone is using it: "people" keeps
+    # batch off it until cooldownSeconds after their last message, "batch"
+    # lets batch share it for more pipeline throughput.
+    servingLane: people
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "2"
+        memory: 512Mi
+  service:
+    port: 8000
+  # The engine downloads its own weights, so a site that terminates TLS on its
+  # egress has to give this pod the same trust store the workers already get.
+  # Without it the Hub's metadata resolves and the weight transfer fails
+  # certificate verification, which reads as a stalled download rather than an
+  # error. Mount the bundle here and point the standard variables at it. Engine
+  # tunables that are environment variables rather than flags - kernel
+  # selection, cache directories - go through extraEnv as well.
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  # Defence in depth behind the loopback bind. Only the router may reach the
+  # sidecar, so nothing in the cluster can route around the gateway's metering.
+  # Some CNIs enforce this against kubelet probe traffic as well; where they do,
+  # add the node range through extraIngress rather than disabling the policy.
+  networkPolicy:
+    enabled: true
+    extraIngress: []
+  persistence:
+    enabled: true
+    size: 40Gi
+    storageClass: ""
+    accessModes: [ReadWriteOnce]
+  # Shared memory for the engine's worker processes, backed by RAM. Only what
+  # is used is charged; the limit bounds a runaway. Tensor-parallel replicas
+  # exchange activations through it and want more.
+  sharedMemorySizeLimit: 8Gi
+  # Set when GPU pods have to name a RuntimeClass to be handed the device -
+  # k3s registers `nvidia` when it detects the NVIDIA container runtime. Empty
+  # omits the field, which is right wherever the default runtime already
+  # injects GPUs for a pod that requests nvidia.com/gpu, as the GPU Operator
+  # arranges. Naming a class the cluster does not have leaves the pod Pending.
+  runtimeClassName: ""
+  startupTimeoutSeconds: 3600
+  terminationGracePeriodSeconds: 120
+  nodeSelector: {}
+  tolerations: []
+  topologyKey: kubernetes.io/hostname
+  # Host resources beside the GPU. Loading bf16 weights stages them through
+  # host memory, so the request covers the checkpoint once over; the limit is
+  # host memory, not device memory, and a discrete GPU's memory is not counted
+  # here at all.
+  resources:
+    requests:
+      cpu: "2"
+      memory: 16Gi
+      nvidia.com/gpu: "1"
+    limits:
+      cpu: "8"
+      memory: 48Gi
+      nvidia.com/gpu: "1"
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+
+# Every consumer takes one path to inference: LiteLLM for governance, then Envoy
+# and the endpoint picker for placement, then the sidecar that stamps priority at
+# the pod. Consumers resolve a single URL and never learn the topology behind it,
+# so the placement layer can be replaced without any of them changing.
+gateway:
+  enabled: true
+  # Virtual keys, budgets, spend, rate limits, and model access. Priority class is
+  # expressed as *which alias a key may call*: each alias presents a different
+  # upstream key, and the sidecar stamps the band that key maps to. Nothing is
+  # injected into the request body, so a caller cannot name its own band.
+  litellm:
+    image:
+      # The maintainers' non-root build of the proxy, which is what lets the
+      # gateway run under the same non-root, read-only-root settings as every
+      # other pod in this chart. The digest is the multi-architecture index;
+      # pin a release by digest and never a floating tag, which upstream has
+      # published a compromised build under.
+      repository: ghcr.io/berriai/litellm-non_root
+      tag: "v1.106.2"
+      digest: sha256:07fabea33dfc2b127e865c03112dfc76936334b29028ec05cdd355af2385dc04
+      pullPolicy: IfNotPresent
+      pullSecrets: []
+    # A site that terminates TLS on its egress hands the proxy its trust store
+    # here, as with the engines.
+    extraEnv: []
+    extraVolumes: []
+    extraVolumeMounts: []
+    # What the proxy reports outward, and what it fetches at startup.
+    #
+    # LiteLLM fetches its model-cost map from GitHub every time it starts and
+    # falls back to a bundled copy when it cannot; with localModelCostMap the
+    # bundled copy is used from the start and nothing leaves the cluster. The
+    # gateway prices the fleet's own engines, whose cost the map does not know
+    # anyway. telemetry covers the proxy's own usage reports to its
+    # maintainers, which is not a deployment's to make by default.
+    localModelCostMap: true
+    telemetry: false
+    # Runs as the non-root image's unprivileged user with a read-only root
+    # filesystem. Startup writes - Prisma's engine cache, the unpacked admin
+    # UI - land on emptyDir mounts the Deployment provides, verified against
+    # the pinned image: it reaches readiness and applies every migration.
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: [ALL]
+    replicas: 2
+    # Where the proxy runs. Every request passes through it, so a cluster
+    # whose nodes share a failure domain spreads the replicas across domains.
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+    aliases:
+      interactive: llm-interactive
+      dev: llm-dev
+      batch: llm-batch
+    # What the three aliases resolve to.
+    #
+    # "engine" is the in-cluster serving plane: every alias is the model the
+    # chart serves, reached through the placement router, and each alias
+    # presents its own upstream key so the sidecar can stamp a band. It needs
+    # modelServing.enabled and the serving-keys Secret.
+    #
+    # "external" is any OpenAI-compatible provider - a hosted API, a vLLM or
+    # Ollama server elsewhere, a cloud endpoint - and needs no GPU in this
+    # cluster at all. Every alias is then served by each model named in
+    # `models`, spelled the way LiteLLM names providers (`openai/gpt-4o`,
+    # `ollama/qwen3:8b`, `hosted_vllm/Qwen/Qwen3-8B`), at `apiBase` (empty
+    # for a provider LiteLLM addresses itself, such as OpenAI), authenticating
+    # with the key in `apiKeySecret` when one is named. The placement router,
+    # the engines, and the sidecar keys are not rendered: priority bands are a
+    # property of the in-cluster engines, and an external provider has none.
+    upstream:
+      type: engine
+      apiBase: ""
+      apiKeySecret:
+        name: ""
+        key: ""
+      models: []
+    # Further model_list entries, appended verbatim to what the chart renders:
+    # an embedding model behind the same gateway, a second provider, a fallback.
+    # Each entry is a LiteLLM model_list item (model_name + litellm_params);
+    # keys go through os.environ/ references and extraEnv, never inline. An
+    # entry for a provider that compiles each JSON schema into a grammar sets
+    # model_info.stable_schemas: true, so the gateway keeps request-specific ids
+    # out of the schemas it sends there (gateway/stable_schemas.py).
+    extraModelList: []
+    # LiteLLM owns its own schema in the shared database. It must not be pointed
+    # at FlakeGraph's: its migration tool treats a non-empty schema as an
+    # existing production database, writes a baseline, and marks it applied
+    # without creating a single table — after which every key operation fails
+    # on a missing table rather than on a missing migration.
+    #
+    # Appended verbatim to the URI in database.secretName, so a URI that already
+    # carries a query string needs "&schema=..." here instead.
+    databaseUrlSuffix: "?schema=litellm"
+    # One operator-managed Secret holds the virtual keys handed to consumers.
+    # The batch key is what the worker pools mount.
+    virtualKeySecret:
+      name: flakegraph-gateway-keys
+      batchKey: LITELLM_VIRTUAL_KEY_BATCH
+      masterKey: LITELLM_MASTER_KEY
+      saltKey: LITELLM_SALT_KEY
+    # The upstream keys LiteLLM presents to the sidecar, one per class.
+    upstreamKeySecret:
+      name: flakegraph-serving-keys
+      interactiveKey: SIDECAR_KEY_INTERACTIVE
+      devKey: SIDECAR_KEY_DEV
+      batchKey: SIDECAR_KEY_BATCH
+    # Metering writes a row per request. Batch traffic makes that millions of
+    # rows, so spend updates are batched off the request path from the start
+    # rather than tuned after the first pipeline run melts the database.
+    spendLogging:
+      enabled: true
+      batchWriteIntervalSeconds: 60
+    service:
+      port: 4000
+      # ClusterIP keeps the gateway reachable only from inside the cluster, which
+      # is the right default. NodePort publishes it on every node address, which
+      # also publishes the admin UI - the API and the console share this port.
+      # Set it only where reaching the gateway from outside matters more than
+      # keeping the console off the surrounding network.
+      type: ClusterIP
+      # Empty lets Kubernetes assign one from the service-node-port-range.
+      nodePort: ""
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 12
+      targetCpuUtilizationPercentage: 70
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: "4"
+        memory: 2Gi
+  # Placement. The endpoint picker is an ext_proc server rather than a proxy, so
+  # it runs beside Envoy: Envoy terminates the connection, the picker names a
+  # replica in x-gateway-destination-endpoint, and an ORIGINAL_DST cluster routes
+  # there. They share a pod so that hop stays on loopback.
+  #
+  # The picker selects engine pods by label rather than through a custom
+  # resource, which keeps this chart installable on a cluster with no Gateway
+  # API Inference Extension CRDs — the common case for a cluster this chart
+  # has never seen. Rendered only for the engine upstream: an external
+  # provider has no replicas to place across.
+  placement:
+    replicas: 2
+    # Where the router runs; like the proxy, it carries every request.
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+    service:
+      port: 8000
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 12
+      targetCpuUtilizationPercentage: 70
+    envoy:
+      image:
+        repository: docker.io/envoyproxy/envoy
+        tag: "distroless-v1.39.5"
+        digest: sha256:9d84a586119a27b50437dbb01eccd4722832741539b1ed53c8e9d6da6067a6e0
+        pullPolicy: IfNotPresent
+      adminPort: 19000
+      readyPort: 19001
+      resources:
+        requests:
+          cpu: 500m
+          memory: 512Mi
+        limits:
+          cpu: "4"
+          memory: 2Gi
+    endpointPicker:
+      image:
+        repository: ghcr.io/llm-d/llm-d-router-endpoint-picker
+        tag: "v0.10.0"
+        digest: sha256:2e516fa1310da7be59b82beb1445362139597d6d553ef04d546716abe3aaaa70
+        pullPolicy: IfNotPresent
+      extProcPort: 9002
+      grpcHealthPort: 9003
+      metricsPort: 9090
+      # An unreachable picker means no destination header, so passing traffic
+      # through would fail anyway. Refusing loudly beats routing blindly.
+      failOpen: false
+      # Relative weights over the picker's default scorers. Prefix affinity leads
+      # because a replica that already holds the prefix skips recomputing it.
+      scorerWeights:
+        queue: 2
+        kvCacheUtilization: 2
+        prefixCache: 3
+      resources:
+        requests:
+          cpu: "1"
+          memory: 1Gi
+        limits:
+          cpu: "4"
+          memory: 4Gi
+
+# The document plane. MinerU answers 409 when it is busy and FlakeGraph's HTTP
+# transport does not retry, so something has to absorb backpressure or documents
+# simply fail. The shim holds the work instead: it authenticates, orders waiting
+# requests by priority in PostgreSQL so ordering holds across its own replicas,
+# and admits only as much as the pool can take. Tracking that capacity is what
+# makes least-loaded dispatch fall out for free.
+# The FlakeGraph control plane: the operator-facing UI that submits runs and
+# reads the fleet. It ships as part of the deployment rather than as something
+# installed on a node by hand, so a cluster that has this chart has a control
+# plane, and it can be versioned, rolled back, and put behind the same ingress
+# and identity provider as everything else.
+controlPlane:
+  # Empty follows image.tag. Set it to ship a console-only change without
+  # restarting the workers and the finalizer, which share image.tag.
+  imageTag: ""
+  # Enable with the protected sign-in gate, or an explicitly isolated operator.
+  enabled: false
+  service:
+    port: 3000
+  # The control plane owns state of its own: its run catalog, uploads awaiting
+  # submission, what a graph has been renamed to, which clusters are
+  # registered. The code lives on a read-only filesystem, so this has to be
+  # somewhere writable - and somewhere that survives a restart, or a rename
+  # would undo itself the next time the pod moved.
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+    # Where the app keeps that state. Must match a writable mount.
+    stateRoot: /var/lib/flakegraph
+  # Who may open a connection to the application at all.
+  #
+  # This matters more than it looks. Behind a gate the application does not
+  # authenticate its callers - it reads the identity the gate established from a
+  # request header. That header is proof only for traffic that actually passed
+  # through the ingress controller; to a workload that can address the Service
+  # directly it is a field it may set to any value. Restricting the source is
+  # what makes trusting the header sound.
+  #
+  # Off by default because the correct peer is site-specific, and a policy
+  # naming the wrong one makes the application unreachable rather than
+  # unprotected. Turn it on, and name your ingress controller, wherever the
+  # cluster runs workloads that are not part of this release. The chart
+  # refuses to render ingress.authProxy without it: a gate whose header
+  # anyone can forge is not a gate.
+  networkPolicy:
+    enabled: false
+    # Standard NetworkPolicy peers. Both selectors inside one entry must match.
+    from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: kube-system
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: traefik
+  auth:
+    # A shared console requires ingress.authProxy and its NetworkPolicy.
+    # An isolated port-forwarded console can instead pin one operator address.
+    # Everyone able to reach that console acts as this operator; no identity
+    # can be assumed from the UI, and public ingress is refused in this mode.
+    required: false
+    singleOperator: ""
+  # Questions asked over a finished graph go to the gateway as an interactive
+  # consumer. The Secret holds a LiteLLM virtual key scoped to the alias named
+  # here; with no Secret the console still serves graphs, but not questions.
+  ask:
+    secretName: ""
+    secretKey: FLAKEGRAPH_ASK_API_KEY
+    model: llm-interactive
+    # Reasoning effort for the console's structured helper calls (query
+    # planning, relevance scoring, follow-up questions, type suggestions),
+    # sent as `reasoning_effort`. They are classification tasks; a reasoning
+    # model's free-form thinking multiplies their latency (15 s against 2.7 s
+    # for one plan) without changing the verdict. `inherit` sends nothing and
+    # lets the model decide; the answer itself always reasons as the model
+    # sees fit.
+    structuredReasoning: none
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+
+# One hostname per routed service under a single domain, terminated by whatever
+# ingress controller the cluster already runs. Plain Ingress objects need
+# nothing but a class, a domain, and a certificate.
+#
+# Host-based rather than path-based because the applications behind it assume
+# they own the root, and because an OIDC redirect URI must be a stable absolute
+# URL - which is the reason this exists at all.
+ingress:
+  enabled: false
+  className: ""
+  domain: ""
+  # Which controller terminates these hosts, because the sign-in gate and edge
+  # compression are expressed differently on each and not at all on some.
+  #
+  #   none     Plain networking.k8s.io Ingress objects and nothing else. Works
+  #            on every controller; the gate and compression are unavailable.
+  #   traefik  Traefik CRDs: the gate is a forwardAuth Middleware, compression
+  #            a compress Middleware, and console API keys route past the gate
+  #            on an IngressRoute. Needs traefik.io/v1alpha1 on the cluster.
+  #   nginx    ingress-nginx annotations: the gate is auth-url/auth-signin and
+  #            the identity headers come from auth-response-headers. Machine
+  #            keys for the console and edge compression are not expressible
+  #            without configuration snippets, which are off by default there,
+  #            so neither is rendered.
+  controller: none
+  hosts:
+    controlPlane: flakegraph
+    gateway: llm
+    ocr: ocr
+  annotations: {}
+  # Compress what the edge sends the browser. The console's own gzip never
+  # reaches its API route handlers - Next.js hands the compression filter a
+  # Content-Type list, which it rejects as not compressible - and one graph
+  # payload is tens of megabytes of JSON before compression. Rendered as a
+  # Traefik Middleware, so it needs `controller: traefik`; off by default
+  # because most edges compress on their own, and a Middleware nothing can
+  # apply is an install error.
+  compression:
+    enabled: false
+  # Paths whose callers are programs, not people, keyed by the service that
+  # serves them. They are routed without the gate, because every one of them
+  # already authenticates its own callers - the gateway on a virtual key, the
+  # parsing shim on its keyring - and a browser sign-in cannot be satisfied by
+  # an SDK holding a bearer token.
+  #
+  # Declare only paths that refuse an unauthenticated request. Anything listed
+  # here is reachable with whatever credential that service itself demands, and
+  # nothing else stands in front of it.
+  # Matched exactly. Do not list a prefix: the gateway's key check is declared
+  # per route rather than globally, so `/v1` is not a namespace that
+  # authenticates - it is a namespace that mostly does. Verify a path refuses an
+  # unauthenticated caller before adding it, and re-verify on an image bump.
+  machineApiPaths:
+    # Inference only. Everything a person opens - the admin UI, model management,
+    # spend, keys - stays behind the gate, as does /v1/mcp/*, which the gateway
+    # serves to anyone. Callers must address the gateway with /v1 in the base
+    # URL; the unversioned aliases are not routed.
+    gateway:
+      - /v1/chat/completions
+      - /v1/completions
+      - /v1/embeddings
+      - /v1/models
+      - /v1/messages
+      # Anthropic-format clients size their context with this before sending;
+      # key-checked like /v1/messages (verified 401 without one).
+      - /v1/messages/count_tokens
+      - /v1/responses
+      - /v1/rerank
+    # MinerU's parse contract, as the shim exposes it.
+    ocr:
+      - /file_parse
+  # One sign-in gate in front of every routed host, rather than an identity
+  # integration inside each application. Applications that cannot speak OIDC are
+  # covered too, and the deployment's authentication stops being whichever
+  # application authenticates worst.
+  # The gate needs `controller: traefik` or `controller: nginx`: it is
+  # expressed through the controller's own authentication hook, and a plain
+  # Ingress has none. Behind it the console reads who the viewer is from the
+  # X-Auth-Request-* headers the gate sets, and only from those; every
+  # identity-shaped header a client sends is removed before the gate runs,
+  # so a signed-in viewer cannot become somebody else by adding one.
+  authProxy:
+    enabled: false
+    # Its own hostname, so the sign-in and callback endpoints are not behind the
+    # gate they exist to open.
+    host: auth
+    replicas: 2
+    image:
+      repository: quay.io/oauth2-proxy/oauth2-proxy
+      tag: v7.15.5
+      pullPolicy: IfNotPresent
+    oidc:
+      # Any OIDC issuer. The chart neither knows nor cares which.
+      issuerUrl: ""
+      clientId: ""
+    # Restrict to one mail domain, or "*" to accept whoever the issuer admits -
+    # assignment is then the issuer's job, which is where it belongs. With "*"
+    # the issuer's own app assignment is the whole access control, so an
+    # application registration open to every account in a tenant admits every
+    # account in that tenant.
+    emailDomain: "*"
+    existingSecret: ""
+    clientSecretKey: client-secret
+    cookieSecretKey: cookie-secret
+    # Paths served before sign-in, as regular expressions.
+    #
+    # Empty, and health endpoints are deliberately not here. A liveness probe is
+    # made by the kubelet against the pod's own address and never reaches the
+    # ingress, so exempting health paths protects nothing - while the exemption
+    # itself applies to every host behind the gate at once, because it matches a
+    # path with no idea which service is serving it. Exempting `^/health$` for
+    # the parsing shim also exempted it for the control plane, where that path
+    # is not a health check at all: the console answers it with the application
+    # shell, unauthenticated.
+    #
+    # Prefer routing to a rule of its own over exempting a path here, the way
+    # `machineApiPaths` does: routing knows which service it is talking about.
+    skipAuthRoutes: []
+    # Programs acting for a person - another application calling on behalf of
+    # whoever is signed in to it - cannot follow a browser sign-in either, but
+    # unlike a key holder they are not machines: they carry that person's
+    # access token. With this on, the gate admits a request presenting
+    # `Authorization: Bearer <token>` for this gate's client (audience
+    # `oidc.clientId`, issued by `oidc.issuerUrl`), verified on signature,
+    # issuer, audience and expiry, and names the person exactly as a browser
+    # session would. Every host behind the gate then serves them with their own
+    # access, the console included: they list and ask only the graphs that
+    # person may read.
+    #
+    # The person's address is read from the same claim as at sign-in (`email`,
+    # or whatever `--oidc-email-claim` names), so the access token has to carry
+    # it. A further audience on the same issuer goes in extraArgs
+    # (`--oidc-extra-audience=<client ID>`), for a separate API registration
+    # that does not open the console to everyone who may call it. Do not use
+    # `--extra-jwt-issuers` for this: tokens it admits skip the email claim
+    # above and name the person by `sub`, so they would see no graphs.
+    bearerTokens:
+      enabled: false
+    extraArgs: []
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+    # Programs holding one of the console's own API keys (its SDK keys page)
+    # reach its API without a browser sign-in. A request that presents such a
+    # key - `Authorization: Bearer fg_...` or `X-Flakegraph-Api-Key` - is
+    # routed to the console past the gate, with every identity header the gate
+    # would have set stripped first, so a key holder is a machine and never a
+    # person; the console then refuses any key it does not hold, and, with
+    # `controlPlane.auth.required`, any caller that is neither a key holder
+    # nor someone the gate signed in. Browser traffic carries no such header
+    # and meets the gate as before. Traefik only: the route matches on a
+    # header, which ingress-nginx cannot express without snippets.
+    machineKeys:
+      enabled: true
+  tls:
+    # A Secret of type kubernetes.io/tls holding the chain and key. Empty serves
+    # plain HTTP, which no identity provider will accept a redirect to.
+    secretName: ""
+    # Defaults to every routed host. Set explicitly when the certificate covers
+    # a different set - a wildcard, for instance.
+    hosts: []
+
+# Metrics, dashboards, and alerts for the fleet, delivered to a
+# kube-prometheus-stack release that already runs on the cluster. The chart
+# does not install that stack: it declares what to scrape, what to alert on,
+# and what to draw, and the stack picks those declarations up as long as its
+# Prometheus selects ServiceMonitors, PodMonitors, and PrometheusRules from
+# this namespace (serviceMonitorSelectorNilUsesHelmValues: false and friends,
+# as deploy/spark/monitoring-values.yaml sets them).
+#
+# Turning this on adds one cluster-scoped grant: the endpoint picker's metrics
+# port authenticates every scrape through the API server's TokenReview and
+# SubjectAccessReview, and only a ClusterRole can permit those. The chart
+# already holds one cluster-wide grant for the control plane's node view, so
+# this is a second of the same kind, not a new kind.
+monitoring:
+  # Off until a kube-prometheus-stack release exists on the cluster: every
+  # object below needs the Prometheus operator's CRDs, and rendering them
+  # without the CRDs fails the install rather than degrading it.
+  enabled: false
+  # Release name of that stack. Its Grafana Service and Prometheus pods are
+  # addressed by the names that release produces.
+  release: monitoring
+  # Where that stack runs. Empty means this release's namespace, which is
+  # what lets the chart publish Grafana behind its own sign-in gate: an
+  # Ingress can only back onto a Service in its own namespace. With the
+  # stack elsewhere, the NetworkPolicies admit its Prometheus from that
+  # namespace, the dashboards and the database datasource are written into
+  # it for the stack's sidecars to find, and Grafana's Ingress and
+  # NetworkPolicy are not rendered - publish it through the stack's own
+  # ingress instead.
+  namespace: ""
+  # How often each target is scraped. The alerts below reason in minutes, so a
+  # coarser interval only delays them; a finer one mostly costs storage.
+  scrapeInterval: 15s
+  grafana:
+    # Short label under ingress.domain, like ingress.hosts.*. Grafana sits behind
+    # the same sign-in gate as the control plane and trusts the identity the gate
+    # establishes, so it is only ever published through that ingress.
+    host: grafana
+    servicePort: 80
+  database:
+    # Read-only role Grafana queries the task and OCR queues and LiteLLM's spend
+    # schema through. pg_read_all_data covers tables that do not exist yet, so a
+    # schema bump does not need a grant to follow it.
+    role: flakegraph_metrics
+    # Holds that role's password. The chart generates it once and keeps it: a
+    # password rotated on every upgrade would break the datasource on every
+    # upgrade, which is not what rotation is for.
+    secretName: flakegraph-postgres-metrics
+  rules:
+    enabled: true
+    # Every number an alert compares against, so a fleet can be tuned without
+    # editing PromQL. Durations are Prometheus `for:` windows.
+    thresholds:
+      # How long a scrape target - an engine, the gateway, the parsing shim -
+      # may stay down before it is more than a rollout. An engine restarting
+      # takes minutes to load weights; five is enough to tell a restart from a
+      # loss, and the others come back well inside it.
+      targetDownFor: 5m
+      # KV-cache usage fraction above which the engine is one burst away from
+      # preempting a running request - the eviction the serving design exists
+      # to prevent. Sustained rather than instantaneous, because a full cache
+      # under steady load is the engine working as intended.
+      kvCacheUsage: 0.9
+      kvCacheUsageFor: 15m
+      # p95 seconds to first token. Ten is where an interactive caller stops
+      # waiting for a chat reply, and where the sidecar's queue-jump has failed
+      # to keep interactive work ahead of batch.
+      ttftP95Seconds: 10
+      ttftFor: 10m
+      # Seconds the oldest waiting parse request has been held. The shim holds
+      # work deliberately, so a wait is not a fault - but ten minutes exceeds
+      # what the parsing pool takes to drain a full queue at its ceiling.
+      ocrOldestWaitingSeconds: 600
+      # Fraction of parse requests ending in an upstream error or timeout over
+      # fifteen minutes. One in ten is well above MinerU's steady-state rate on
+      # a healthy pool and well below a pool that is entirely down.
+      ocrUpstreamFailureRatio: 0.1
+      # Tasks that failed in the last hour, summed over stages. Single failures
+      # are retried and expected; a handful an hour means a provider or a
+      # profile is broken rather than one document being unusual.
+      taskFailuresPerHour: 5
+      # How long a gauge of tasks at their last attempt, or of expired leases,
+      # may stay above zero. Both self-heal within one lease period when the
+      # cause was a single pod; ten minutes is two of those.
+      taskAttentionFor: 10m
+      # How long demand may exceed a pool's available replicas before that is a
+      # scaling fault rather than the autoscaler catching up. KEDA polls every
+      # few seconds and a worker pod schedules in under a minute; fifteen
+      # minutes means the pool is pinned at its ceiling or cannot schedule.
+      workerDemandUnmetFor: 15m
+
+# Embedding on a GPU instead of on every process's CPU. Off by default: the
+# workers and the Spark finalizer then load the model locally, which is right
+# for a laptop or a small corpus.
+#
+# On a real corpus the local path does not finish. A Spark executor embeds on
+# one CPU thread at roughly 25 tokens a second, so a thousand chunks are hours
+# of work per task, and a batch of long chunks can take the Python worker past
+# what a JVM leaves it inside the executor's limit, which ends the attempt.
+# This server embeds at thousands of tokens a second on a GPU shared with an
+# engine, and its vectors agree with the local path's to a cosine of 0.9998, so
+# graphs embedded either way stay comparable.
+#
+# The server uses the engine's vLLM image in pooling mode and the weights the
+# application image already carries; the gateway serves it under the
+# checkpoint's own name, and the batch virtual key must list that name.
+embeddingServing:
+  enabled: false
+  replicas: 1
+  model:
+    # Must match config.embedding.model: the application image carries this
+    # checkpoint for the local path, and the server is seeded from it.
+    name: Qwen/Qwen3-Embedding-0.6B
+  # A share of one device. On a unified-memory part the engine's share and this
+  # one come out of the same pool - see modelServing.server.gpuMemoryUtilization.
+  gpuMemoryUtilization: 0.05
+  # The checkpoint's own context, so nothing the local path would have embedded
+  # is refused here.
+  maxModelLen: 32768
+  device:
+    # A whole GPU through the device plugin. Set false, with a runtime class
+    # that exposes the device, to share one the engine already holds - as
+    # documentParsing.mineru.device.claimGpu does.
+    claimGpu: true
+    runtimeClassName: ""
+  service:
+    port: 8000
+  networkPolicy:
+    enabled: true
+  modelCacheSizeLimit: 4Gi
+  resources:
+    requests:
+      cpu: "1"
+      memory: 4Gi
+    limits:
+      cpu: "4"
+      memory: 10Gi
+  seedResources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  # Where the replicas run. On a unified-memory part the scheduler cannot see
+  # what an engine or a parser already holds, so a cluster that shares nodes
+  # names the nodes with room here, and keeps two replicas off one device,
+  # where they would share its compute and gain nothing.
+  affinity: {}
+  topologySpreadConstraints: []
+
+documentParsing:
+  enabled: true
+  # The parsing pool runs the same FlakeGraph image as everything else: MinerU
+  # is already installed in it and ships a `mineru-api` entry point, so there is
+  # no second image to build, pin, or keep on the right architecture.
+  mineru:
+    replicas: 2
+    # MinerU defaults to three. The shim never admits more than this per replica.
+    maxConcurrentRequests: 8
+    # Where MinerU fetches its layout and OCR weights on first use. Sites whose
+    # egress is TLS-intercepted may have to use "modelscope": interception can
+    # present a certificate that fails the strict X.509 checks Python 3.13 turns
+    # on by default, and the Hub redirects large files to a host that is often
+    # intercepted even when its own domain is not.
+    modelSource: huggingface
+    # Where the layout, OCR, formula and table models run. Every one of them
+    # is a torch model and the tool environment ships a CUDA build. Formula
+    # recognition is the stage that decides this: a GPU parses a scanned paper
+    # an order of magnitude faster than a CPU. "cpu" needs nothing from the
+    # cluster and is the default.
+    device:
+      mode: cpu
+      # With "cuda", claim a whole device through the device plugin, so the
+      # scheduler places the replica on a node with a free GPU and accounts
+      # for it. Off, the pod is handed every device on the node by the runtime
+      # class instead (NVIDIA_VISIBLE_DEVICES=all) without claiming any - the
+      # only way to share a single-GPU node with an engine that already holds
+      # its one nvidia.com/gpu, and a way to see every GPU on a bigger node.
+      claimGpu: true
+      # The RuntimeClass GPU pods name on this cluster, if they must name one;
+      # empty omits the field. Required for the unclaimed-device path, which
+      # has no resource request to make the runtime inject a device.
+      runtimeClassName: ""
+      # What MinerU believes it may use of the device, which sets its batch
+      # size. On a whole discrete device this is its memory; on a shared or
+      # unified-memory part it is the parser's share of what is left.
+      virtualVramGiB: 16
+    # MinerU downloads models on first use, so a site that terminates TLS on
+    # egress has to hand this pool its trust store as well.
+    extraEnv: []
+    extraVolumes: []
+    extraVolumeMounts: []
+    service:
+      port: 8080
+    autoscaling:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 16
+      targetCpuUtilizationPercentage: 70
+    # MinerU has no credential of its own; the shim is the plane's key check
+    # and its queue, so only the shim may reach the pool. Some CNIs enforce
+    # this against kubelet probe traffic as well; where they do, add the node
+    # range through extraIngress rather than disabling the policy.
+    networkPolicy:
+      enabled: true
+      extraIngress: []
+    persistence:
+      enabled: true
+      size: 20Gi
+      storageClass: ""
+      accessModes: [ReadWriteOnce]
+    nodeSelector: {}
+    tolerations: []
+    # On CPU nothing forces parsing replicas apart the way a GPU claim does
+    # the engines. Spread them one per host where possible; a fleet with
+    # fewer hosts than replicas still schedules, it just doubles up.
+    topologyKey: kubernetes.io/hostname
+    resources:
+      requests:
+        cpu: "2"
+        memory: 8Gi
+      limits:
+        cpu: "8"
+        memory: 24Gi
+  shim:
+    replicas: 2
+    # The same class-to-band vocabulary as inference, so one key means one thing
+    # on both planes. Lower is served first here as well.
+    keySecret:
+      name: flakegraph-ocr-keys
+      key: ocr-keys.json
+      batchKey: KG_MINERU_API_KEY
+    bands:
+      interactive: 0
+      dev: 10
+      batch: 100
+    queuePollIntervalSeconds: 0.5
+    requestTimeoutSeconds: 3600
+    service:
+      port: 8080
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 8
+      targetCpuUtilizationPercentage: 70
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: "2"
+        memory: 1Gi
+
+# Preparation, extraction, and final graph resolution have different resource
+# profiles, so each role keeps an independently scalable worker pool.
+#
+# A worker pod runs `slots` tasks at once, each under a lease and heartbeat of
+# its own, and drains every one of them on SIGTERM. A task spends most of its
+# life waiting on a model, a parser or object storage, so one pod keeps several
+# in flight. KEDA asks for one pod per `slots` ready or running tasks, and a
+# pool's resources are per pod: re-derive them when changing `slots`.
+workers:
+  prepare:
+    enabled: true
+    replicas: 1
+    # Born-digital text is parsed inside the worker, where one interpreter runs
+    # it a core at a time; scans wait on the parsing pool. Two slots keep a pod
+    # busy while one document waits on the parser, without queuing born-digital
+    # parsing behind itself.
+    slots: 2
+    autoscaling:
+      minReplicas: 0
+      maxReplicas: 4
+    stages: [prepare_document]
+    # Two documents' bytes, pages and chunks at once: twice what one needs.
+    resources:
+      requests:
+        cpu: "1"
+        memory: 8Gi
+      limits:
+        cpu: "4"
+        memory: 32Gi
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+  extract:
+    enabled: true
+    replicas: 1
+    # Every window is a task, and a window task is a few model calls with
+    # little work between them, so a pod holds eight.
+    slots: 8
+    autoscaling:
+      minReplicas: 0
+      # Empty sizes the pool from the model sequences it feeds:
+      #
+      #   maxReplicas = ceil(sequences x sequenceOversubscription / slots)
+      #
+      # where sequences is modelServing.replicas x modelServing.server.maxNumSeqs
+      # when this release runs the engines, and providerSequences when it does
+      # not. A number caps the pool outright instead.
+      maxReplicas: null
+      # Extraction slots per model sequence. A slot is not always in a model
+      # call - it also reads its window, grounds the reply and stores the
+      # result, and the pool runs the call-free compaction stages too - so one
+      # slot per sequence leaves engines idle. At 1.5 the engines run at their
+      # sequence limit with a short waiting queue behind them. With the
+      # interactive-first gate disabled, native priority takes the next free
+      # sequence without evicting running batch work. With the gate enabled,
+      # held calls awaiting upstream headers may be cancelled and retried.
+      # Lower this toward 1 to keep free capacity at the cost of idle engine time.
+      sequenceOversubscription: 1.5
+      # The requests an external provider serves this fleet at once, which the
+      # chart cannot see. Read only when modelServing is off and maxReplicas is
+      # empty.
+      providerSequences: 64
+    stages:
+      - extract_document_context
+      - extract_entity_window
+      - compact_entity_inventory
+      - extract_relation_window
+      - compact_document
+      - revalidate_document_context
+      - revalidate_entity_window
+      - revalidate_relation_window
+      - revalidate_document
+    # One process, so steady use stays near one core; the limit leaves room for
+    # bursts of JSON and TLS work. A single-task worker holds about 180 MiB
+    # resident. A slot adds one window, its document's inventory and the model's
+    # replies; a compaction slot holds a whole document's extraction, so the
+    # limit covers eight long documents compacting at once.
+    resources:
+      requests:
+        cpu: "1"
+        memory: 2Gi
+      limits:
+        cpu: "4"
+        memory: 8Gi
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+  finalize:
+    enabled: true
+    replicas: 1
+    # A finalization drives the process's one Spark application; a worker runs
+    # one at a time whatever this says.
+    slots: 1
+    autoscaling:
+      minReplicas: 0
+      maxReplicas: 1
+    stages: [finalize_graph]
+    resources:
+      requests:
+        cpu: "2"
+        memory: 8Gi
+      limits:
+        cpu: "8"
+        memory: 32Gi
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+
+# Queue-driven worker scaling through KEDA. KEDA counts dependency-ready or
+# actively leased tasks only up to each pool's maximum useful demand, and asks
+# for one pod per `slots` of them; the bounded query avoids repeatedly scanning
+# millions of queued rows while still scaling each Deployment to its configured
+# maximum. Drained pools reach zero, releasing node capacity before Spark
+# executors start.
+#
+# Off by default because it renders KEDA ScaledObjects, which need the KEDA
+# operator's CRDs on the cluster; the chart refuses to render them where the
+# CRDs are absent rather than failing at apply. Off, each pool runs its fixed
+# `replicas` and NOTES says so. Turn it on once KEDA is installed.
+autoscaling:
+  enabled: false
+  pollingIntervalSeconds: 5
+  cooldownPeriodSeconds: 30
+  fallback:
+    failureThreshold: 3
+    replicas: 1
+    behavior: currentReplicasIfHigher
+  scaleUp:
+    stabilizationWindowSeconds: 0
+    podsPerPeriod: 16
+    periodSeconds: 15
+  scaleDown:
+    stabilizationWindowSeconds: 30
+    percentPerPeriod: 100
+    periodSeconds: 15
+
+# The chart-created priorities preserve the shared planes, let Spark preempt an
+# idle worker during autoscaler convergence, and keep ordinary workers below all
+# of them.
+#
+# The serving plane sits *above* the workers deliberately. It is the path every
+# consumer takes, so leaving it at the default priority means scaling the queue
+# preempts the gateway those same workers are trying to reach — the pods come
+# back, but every in-flight request fails with a refused connection first, and
+# the cause looks like a network fault rather than a scheduling decision.
+scheduling:
+  priorityClasses:
+    enabled: true
+    workerValue: 800000
+    sparkValue: 900000
+    servingValue: 950000
+    modelValue: 1000000
+
+distributed:
+  # Workers renew long-running work every minute. A five-minute lease bounds
+  # hard-node-loss recovery without imposing a maximum OCR or Spark duration.
+  leaseSeconds: 300
+  pollIntervalSeconds: 1
+  retryDelaySeconds: 15
+
+# Input/output claims are optional because Azure Blob, Snowflake, and PostgreSQL
+# artifact flows do not need shared filesystems. Local input must be readable by
+# the submitter; workers receive source bytes through the artifact store.
+storage:
+  input:
+    existingClaim: ""
+    readOnly: true
+  output:
+    existingClaim: ""
+  cache:
+    existingClaim: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+# Scale-down may select a pod that is still finishing an OCR request. Give the
+# signal-aware worker longer than the default one-hour OCR timeout to drain.
+terminationGracePeriodSeconds: 3900
+revisionHistoryLimit: 3
+priorityClassName: ""
+extraEnv: []
+extraVolumes: []
+extraVolumeMounts: []

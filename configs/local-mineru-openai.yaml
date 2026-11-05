@@ -1,0 +1,41 @@
+runtime:
+  runtime: local
+job:
+  job_id: local-mineru-openai
+  graph_id: local-graph
+files:
+  source: local
+  input_path: data/martial_arts/files
+  include_globs:
+    - "**/*.pdf"
+    - "**/*.docx"
+    - "**/*.pptx"
+    - "**/*.xlsx"
+    - "**/*.png"
+    - "**/*.jpg"
+    - "**/*.jpeg"
+    - "**/*.tif"
+    - "**/*.tiff"
+    - "**/*.bmp"
+    - "**/*.webp"
+ocr:
+  provider: mineru_internal
+  mineru_command: mineru
+  mineru_method: auto
+  mineru_backend: pipeline
+  mineru_effort: medium
+  model_cache_dir: out/cache/mineru
+llm:
+  provider: openai_compatible
+  endpoint: ${KG_LLM_ENDPOINT}
+  model: ${KG_LLM_MODEL}
+  api_key: ${KG_LLM_API_KEY}
+embedding:
+  provider: openai_compatible
+  endpoint: ${KG_EMBED_ENDPOINT}
+  model: ${KG_EMBED_MODEL}
+  api_key: ${KG_EMBED_API_KEY}
+  dimension: 1536
+writer:
+  provider: local_artifacts
+  output_path: out/local-mineru-openai

@@ -1,0 +1,86 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: #f7f9fa;
+  --foreground: #17212b;
+  --card: #ffffff;
+  --card-foreground: #17212b;
+  --popover: #ffffff;
+  --popover-foreground: #17212b;
+  --primary: #16806a;
+  --primary-foreground: #f7f9fa;
+  --secondary: #e7ecef;
+  --secondary-foreground: #17212b;
+  --muted: #e7ecef;
+  --muted-foreground: #66727e;
+  --accent: #e2f1ed;
+  --accent-foreground: #17212b;
+  --destructive: #d5654f;
+  --border: #dfe5e8;
+  --input: #dfe5e8;
+  --ring: #16806a;
+  --sidebar: #ffffff;
+  --radius: 0.65rem;
+}
+
+.dark {
+  --background: #111820;
+  --foreground: #e6ecf2;
+  --card: #161e27;
+  --card-foreground: #e6ecf2;
+  --popover: #161e27;
+  --popover-foreground: #e6ecf2;
+  --primary: #3fc9a4;
+  --primary-foreground: #111820;
+  --secondary: #1b242e;
+  --secondary-foreground: #e6ecf2;
+  --muted: #1b242e;
+  --muted-foreground: #9aa7b4;
+  --accent: #1b242e;
+  --accent-foreground: #e6ecf2;
+  --destructive: #f0876f;
+  --border: #33404d;
+  --input: #33404d;
+  --ring: #3fc9a4;
+  --sidebar: #161e27;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), "IBM Plex Sans", "Helvetica Neue", sans-serif;
+}

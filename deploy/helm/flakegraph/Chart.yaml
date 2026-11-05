@@ -1,0 +1,21 @@
+apiVersion: v2
+name: flakegraph
+description: Distributed knowledge graph processing with a priority-aware serving plane
+type: application
+# The portable profile uses a public bf16 model on Ampere-or-newer GPUs,
+# no speculative drafter or RuntimeClass, and opt-in autoscaling and Traefik
+# objects. The gateway supports external providers; images use the published
+# release.
+version: 0.5.0
+appVersion: "0.1.0"
+# What the templates use: apps/v1, batch/v1, autoscaling/v2, policy/v1, and
+# matchLabelKeys on topology spread (on by default from 1.27). The
+# optional CRD-backed objects (KEDA, CloudNativePG, Prometheus operator,
+# Traefik) are guarded on the cluster's own API discovery rather than on a
+# version floor.
+kubeVersion: ">=1.28.0-0"
+home: https://github.com/leo-pharma-r-d-data-analytics/flakegraph
+sources:
+  - https://github.com/leo-pharma-r-d-data-analytics/flakegraph
+annotations:
+  artifacthub.io/license: Apache-2.0

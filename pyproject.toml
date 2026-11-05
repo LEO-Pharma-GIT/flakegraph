@@ -1,0 +1,192 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flakegraph"
+version = "0.1.0"
+description = "Build evidence-grounded knowledge graphs from documents with modular OCR, LLM, embedding, and writer providers."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"]
+authors = [{ name = "FlakeGraph contributors" }]
+keywords = [
+  "knowledge-graph",
+  "graph-rag",
+  "information-extraction",
+  "entity-resolution",
+  "document-processing",
+  "ocr",
+  "llm",
+  "snowflake",
+  "kubernetes",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+  "Topic :: Text Processing :: Indexing",
+  "Typing :: Typed",
+]
+dependencies = [
+  "azure-identity>=1.25",
+  "azure-storage-blob>=12.20",
+  "boto3>=1.43.36",
+  "defusedxml>=0.7.1",
+  "fastapi>=0.122",
+  "httpx>=0.28.0",
+  "networkx>=3.4",
+  "numpy>=2.1",
+  "pandas>=2.2",
+  "plotly>=6.8",
+  "prometheus-client>=0.26.0",
+  "psycopg[binary,pool]>=3.3",
+  "pyarrow>=18.0",
+  "pydantic>=2.10",
+  "pypdf>=6.16.1",
+  "pypdfium2>=5.10.1",
+  "python-multipart>=0.0.20",
+  "pyyaml>=6.0",
+  "rich>=15.0",
+  "snowflake-connector-python>=4.7.1",
+  "typer>=0.15",
+  "uvicorn>=0.38",
+]
+
+[project.urls]
+Homepage = "https://github.com/LEO-Pharma-R-D-Data-Analytics/flakegraph"
+Repository = "https://github.com/LEO-Pharma-R-D-Data-Analytics/flakegraph"
+Issues = "https://github.com/LEO-Pharma-R-D-Data-Analytics/flakegraph/issues"
+
+[project.optional-dependencies]
+dev = [
+  "boto3-stubs[s3]>=1.43.36",
+  "mypy>=1.14",
+  "pandas-stubs>=2.2",
+  "pytest>=8.3",
+  "pytest-cov>=6.0",
+  "python-docx>=1.1",
+  "ruff>=0.8",
+  "types-networkx>=3.4",
+  "types-PyYAML>=6.0",
+]
+local-embeddings = [
+  "sentence-transformers>=3.3",
+  "torch>=2.6,<3",
+  "transformers>=5.10,<5.11",
+]
+extract-gliner = [
+  "gliner>=0.2",
+  "transformers>=5.10,<5.11",
+]
+distributed-spark = [
+  "graphframes-py==0.12.1",
+  "pyspark==4.1.3",
+]
+# Leiden community detection. igraph and leidenalg are GPL-licensed, so they
+# are not dependencies of the Apache-2.0 package: the default Louvain partition
+# comes from NetworkX, and this extra is selected together with
+# `graph.community_algorithm: leiden`. Installing it makes the combined work
+# subject to the GPL; see THIRD_PARTY_NOTICES.md.
+leiden = [
+  "igraph>=0.11",
+  "leidenalg>=0.10",
+]
+# Browser-SSO credential caching needs a keyring backend. Kept optional so the
+# container image, which authenticates with an SPCS-mounted OAuth token, does
+# not carry a desktop credential store it can never use.
+sso-cache = [
+  "snowflake-connector-python[secure-local-storage]>=4.7.1",
+]
+
+[tool.uv.sources]
+# Linux PyPI Torch wheels include CUDA dependency packages. The production
+# container is CPU-first unless a future GPU profile is added explicitly, so
+# Linux resolution is pinned to PyTorch's CPU wheel index while macOS developer
+# environments can keep using the standard PyPI wheels.
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[project.scripts]
+flakegraph = "kg_processor.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kg_processor"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+# Every marker is registered so `--strict-markers` cannot be tripped by a typo
+# and so a subset can be selected or excluded by name (`-m "not live"`).
+markers = [
+  "live: calls a real external service and is skipped unless its KG_RUN_*_LIVE variable is set",
+  "postgres: needs a PostgreSQL database reachable through KG_TEST_POSTGRES_DSN",
+  "spark: needs the distributed-spark extra, a Java runtime and KG_RUN_SPARK_INTEGRATION=1",
+  "helm: renders the Kubernetes chart and needs the helm binary",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# D100-D103: every production module, class, method, and function explains
+# itself. Tests and deployment scripts are read beside what they exercise, so
+# they are exempt below.
+select = ["E", "F", "I", "UP", "B", "SIM", "PL", "D100", "D101", "D102", "D103"]
+ignore = ["PLR0913"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["PLR2004", "D100", "D101", "D102", "D103"]
+"deploy/**/*.py" = ["D100", "D101", "D102", "D103"]
+# The CLI and the composition root import each backend inside the command or
+# builder that needs it: every subcommand would otherwise pay for pandas,
+# boto3, Azure, psycopg and FastAPI at startup, and the console shells out to
+# the CLI for status polling, preflight and source listings.
+"src/kg_processor/cli.py" = ["PLC0415"]
+"src/kg_processor/factories.py" = ["PLC0415"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+explicit_package_bases = true
+plugins = ["pydantic.mypy"]
+packages = ["kg_processor"]
+# Pytest imports shared helpers from these test directories as top-level modules.
+mypy_path = ["src", "tests/unit", "tests/integration"]
+
+[[tool.mypy.overrides]]
+# Spark remains optional and GraphFrames does not publish a PEP 561 marker, and
+# the Leiden extra is untyped and usually absent. Runtime imports stay lazy and
+# the FlakeGraph-facing annotations remain strict.
+module = [
+  "pyspark.*",
+  "graphframes.*",
+  "plotly.*",
+  "snowflake.snowpark.*",
+  "igraph",
+  "igraph.*",
+  "leidenalg",
+  "leidenalg.*",
+]
+ignore_missing_imports = true
+
+[dependency-groups]
+dev = [
+    "types-defusedxml>=0.7.0",
+]

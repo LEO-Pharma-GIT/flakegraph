@@ -1,0 +1,266 @@
+{{- if and .Values.monitoring.enabled .Values.database.cloudNativePG.enabled }}
+{{- $database := .Values.database.cloudNativePG.database }}
+{{- /*
+The stages and the pools that serve them, from the same values the worker
+Deployments and their ScaledObjects are rendered from - so a series here is
+grouped the way the fleet is actually scaled.
+*/}}
+{{- $stages := list }}
+{{- $poolCases := list }}
+{{- range $poolName, $pool := .Values.workers }}
+{{- range $stage := $pool.stages }}
+{{- $stages = append $stages (printf "'%s'" $stage) }}
+{{- $poolCases = append $poolCases (printf "WHEN '%s' THEN '%s'" $stage $poolName) }}
+{{- end }}
+{{- end }}
+{{- $stageList := join ", " $stages }}
+{{- $poolCase := printf "CASE stage %s ELSE stage END" (join " " $poolCases) }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "flakegraph.postgresQueriesName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: monitoring
+    # CloudNativePG reloads a referenced ConfigMap only when it carries this
+    # label; without it an edited query keeps serving the old SQL until the
+    # database instance restarts.
+    cnpg.io/reload: "true"
+data:
+  # SQL the CloudNativePG exporter runs on every scrape and exposes as
+  # cnpg_<query>_<column>. It runs on the primary only, as the operator's
+  # metrics role, a member of pg_monitor, with its search_path pinned - so
+  # every table is named with its schema, and is readable through the
+  # pg_monitor grants the coordination schema makes. Nothing here touches the
+  # read-only role Grafana holds.
+  #
+  # Two conventions worth knowing before adding a query. The band is the one
+  # flakegraph_worker_demand uses - the band the run was submitted at - so a
+  # queue drawn here and a pool scaled by KEDA agree about which work is
+  # urgent. And per-stage counts are LEFT JOINed against the full list of
+  # stages so an empty stage reports zero rather than vanishing:
+  # a series that disappears when it is fine is one a dashboard cannot draw
+  # and an alert cannot tell from a scrape failure.
+  #
+  # A failed or cancelled run keeps its unstarted tasks queued, because retry
+  # requeues only what failed and resumes the rest. No worker claims them while
+  # the run is stopped, so they are not queue: every query below counts queued
+  # work only for queued or running runs, and flakegraph_tasks reports the
+  # rest as parked.
+  queries.yaml: |
+    flakegraph_tasks:
+      # Every stage, status and band is spelled out: a queue with nothing
+      # running must read as zero running, not as a series that is missing.
+      query: |
+        SELECT stage, status, priority_band, COALESCE(counted.count, 0)::float AS count
+        FROM unnest(ARRAY[{{ $stageList }}]) AS stages(stage)
+        CROSS JOIN unnest(ARRAY['queued', 'parked', 'running', 'succeeded', 'failed', 'cancelled']) AS statuses(status)
+        CROSS JOIN unnest(ARRAY['interactive', 'bulk']) AS bands(priority_band)
+        LEFT JOIN (
+            SELECT task.stage AS counted_stage,
+                   CASE
+                       WHEN task.status = 'queued' AND run.status NOT IN ('queued', 'running')
+                       THEN 'parked'
+                       ELSE task.status
+                   END AS counted_status,
+                   run.priority_band AS counted_band,
+                   count(*) AS count
+            FROM public.flakegraph_task AS task
+            JOIN public.flakegraph_run AS run ON run.id = task.run_id
+            GROUP BY 1, 2, 3
+        ) AS counted
+          ON counted.counted_stage = stages.stage
+         AND counted.counted_status = statuses.status
+         AND counted.counted_band = bands.priority_band
+      primary: true
+      # A full pass over the task table, which a large run makes millions of
+      # rows. Cached so a fifteen-second scrape does not become a fifteen-second
+      # sequential scan.
+      cache_seconds: 30
+      target_databases: [{{ $database | quote }}]
+      metrics:
+        - stage:
+            usage: LABEL
+            description: Pipeline stage
+        - status:
+            usage: LABEL
+            description: Task status; parked is a queued task whose run failed or was cancelled, waiting on a retry
+        - priority_band:
+            usage: LABEL
+            description: The band the run was submitted at, interactive or bulk
+        - count:
+            usage: GAUGE
+            description: Tasks in this stage, status, and band
+    flakegraph_tasks_failed_recent:
+      query: |
+        SELECT stages.stage, count(task.id)::float AS count
+        FROM unnest(ARRAY[{{ $stageList }}]) AS stages(stage)
+        LEFT JOIN public.flakegraph_task AS task
+          ON task.stage = stages.stage
+         AND task.status = 'failed'
+         AND task.updated_at > now() - interval '1 hour'
+        GROUP BY 1
+      primary: true
+      target_databases: [{{ $database | quote }}]
+      metrics:
+        - stage:
+            usage: LABEL
+            description: Pipeline stage
+        - count:
+            usage: GAUGE
+            description: Tasks that failed in the last hour
+    flakegraph_tasks_near_attempt_limit:
+      query: |
+        SELECT stages.stage, count(task.id)::float AS count
+        FROM unnest(ARRAY[{{ $stageList }}]) AS stages(stage)
+        LEFT JOIN public.flakegraph_task AS task
+          ON task.stage = stages.stage
+         AND task.status IN ('queued', 'running')
+         AND task.attempts >= task.max_attempts - 1
+         AND EXISTS (
+             SELECT 1 FROM public.flakegraph_run AS run
+             WHERE run.id = task.run_id AND run.status IN ('queued', 'running')
+         )
+        GROUP BY 1
+      primary: true
+      target_databases: [{{ $database | quote }}]
+      metrics:
+        - stage:
+            usage: LABEL
+            description: Pipeline stage
+        - count:
+            usage: GAUGE
+            description: Queued or running tasks on their last permitted attempt
+    flakegraph_tasks_lease_expired:
+      query: |
+        SELECT stages.stage, count(task.id)::float AS count
+        FROM unnest(ARRAY[{{ $stageList }}]) AS stages(stage)
+        LEFT JOIN public.flakegraph_task AS task
+          ON task.stage = stages.stage
+         AND task.status = 'running'
+         AND task.lease_expires_at < now()
+        GROUP BY 1
+      primary: true
+      target_databases: [{{ $database | quote }}]
+      metrics:
+        - stage:
+            usage: LABEL
+            description: Pipeline stage
+        - count:
+            usage: GAUGE
+            description: Running tasks whose lease has lapsed and that no worker has reclaimed
+    flakegraph_tasks_oldest_queued:
+      # Age of the oldest task a worker could claim right now, so "queued" here
+      # means claimable: released, with its dependencies met. The final stage
+      # has no dependency rows - its barrier is every other task in the run -
+      # so it is judged the way the demand view judges it.
+      query: |
+        SELECT stage, priority_band, COALESCE(queued.seconds, 0)::float AS seconds
+        FROM unnest(ARRAY[{{ $stageList }}]) AS stages(stage)
+        CROSS JOIN unnest(ARRAY['interactive', 'bulk']) AS bands(priority_band)
+        LEFT JOIN (
+            SELECT task.stage AS queued_stage,
+                   run.priority_band AS queued_band,
+                   extract(epoch FROM now() - min(task.available_at))::float AS seconds
+            FROM public.flakegraph_task AS task
+            JOIN public.flakegraph_run AS run
+              ON run.id = task.run_id
+             AND run.status IN ('queued', 'running')
+            WHERE task.status = 'queued'
+              AND task.available_at <= now()
+              AND (
+                  (task.stage <> 'finalize_graph' AND task.remaining_dependencies = 0)
+                  OR (
+                      task.stage = 'finalize_graph'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM public.flakegraph_task AS unfinished
+                          WHERE unfinished.run_id = task.run_id
+                            AND unfinished.id <> task.id
+                            AND unfinished.status <> 'succeeded'
+                      )
+                  )
+              )
+            GROUP BY 1, 2
+        ) AS queued
+          ON queued.queued_stage = stages.stage
+         AND queued.queued_band = bands.priority_band
+      primary: true
+      target_databases: [{{ $database | quote }}]
+      metrics:
+        - stage:
+            usage: LABEL
+            description: Pipeline stage
+        - priority_band:
+            usage: LABEL
+            description: The band the run was submitted at, interactive or bulk
+        - seconds:
+            usage: GAUGE
+            description: Seconds the oldest claimable task has waited
+    flakegraph_worker_demand:
+      # What KEDA scales on, with the pool that would serve each stage beside
+      # it, so demand can be set against a pool's available replicas. The view
+      # has no row for a stage with nothing to do, so every stage and band is
+      # spelled out and joined: an idle fleet reads as zero demand, not as a
+      # series that went missing.
+      query: |
+        SELECT stage, {{ $poolCase }} AS pool, priority_band,
+               COALESCE(demand.desired_workers, 0)::float AS desired_workers
+        FROM unnest(ARRAY[{{ $stageList }}]) AS stages(stage)
+        CROSS JOIN unnest(ARRAY['interactive', 'bulk']) AS bands(priority_band)
+        LEFT JOIN (
+            SELECT stage AS demand_stage, priority_band AS demand_band, desired_workers
+            FROM public.flakegraph_worker_demand
+        ) AS demand
+          ON demand.demand_stage = stages.stage
+         AND demand.demand_band = bands.priority_band
+      primary: true
+      target_databases: [{{ $database | quote }}]
+      metrics:
+        - stage:
+            usage: LABEL
+            description: Pipeline stage
+        - pool:
+            usage: LABEL
+            description: Worker pool that serves the stage
+        - priority_band:
+            usage: LABEL
+            description: The band the run was submitted at, interactive or bulk
+        - desired_workers:
+            usage: GAUGE
+            description: Ready tasks, active leases, and pending publications a worker could take
+    flakegraph_runs:
+      query: |
+        SELECT statuses.status, count(run.id)::float AS count
+        FROM unnest(ARRAY['planning', 'queued', 'running', 'succeeded', 'failed', 'cancelled']) AS statuses(status)
+        LEFT JOIN public.flakegraph_run AS run
+          ON run.status = statuses.status
+        GROUP BY 1
+      primary: true
+      target_databases: [{{ $database | quote }}]
+      metrics:
+        - status:
+            usage: LABEL
+            description: Run status
+        - count:
+            usage: GAUGE
+            description: Runs in this status
+    flakegraph_publications:
+      # Every status the table admits, so a fleet that has published nothing
+      # reads as zeros rather than as no series at all.
+      query: |
+        SELECT statuses.status, count(publication.generation)::float AS count
+        FROM unnest(ARRAY['queued', 'running', 'succeeded', 'failed', 'cancelled']) AS statuses(status)
+        LEFT JOIN public.flakegraph_publication AS publication
+          ON publication.status = statuses.status
+        GROUP BY 1
+      primary: true
+      target_databases: [{{ $database | quote }}]
+      metrics:
+        - status:
+            usage: LABEL
+            description: Publication status
+        - count:
+            usage: GAUGE
+            description: Graph publications in this status
+{{- end }}
