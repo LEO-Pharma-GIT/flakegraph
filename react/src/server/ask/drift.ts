@@ -5,9 +5,11 @@ import {
   DRIFT_FOLLOWUP_COUNT,
   DRIFT_FOLLOWUP_PRUNE_DISTANCE,
   DRIFT_FOLLOWUP_QUESTION_CHAR_MAX,
+  DRIFT_MAX_OUTPUT_TOKENS,
   DRIFT_MAX_RELATIONS,
   DRIFT_PRIMER_COMMUNITIES,
   DRIFT_PRIMER_SUMMARY_CHAR_LIMIT,
+  HELPER_LLM_CALL_TIMEOUT_MS,
   RRF_K,
 } from "./constants";
 import { fuseRrf } from "./retrieve";
@@ -55,6 +57,8 @@ export async function generateDriftFollowUps(
       model: model.languageModel,
       output: Output.object({ schema: FollowUpsSchema }),
       ...model.structuredOptions,
+      maxOutputTokens: DRIFT_MAX_OUTPUT_TOKENS,
+      abortSignal: AbortSignal.timeout(HELPER_LLM_CALL_TIMEOUT_MS),
       instructions: `You plan multi-hop retrieval for a graph RAG system. Given a user question and community-level primers, generate ${DRIFT_FOLLOWUP_COUNT} targeted sub-questions whose answers together cover the user's question.
 
 Rules:

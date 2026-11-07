@@ -96,8 +96,8 @@ describe("ask retrieval", () => {
     const text = formatGraphSearch({ ...emptySearch, relations }).text;
     expect(relations.find((hit) => hit.id === "rel_karate_origin")?.claimed).toBe(true);
     expect(relations.find((hit) => hit.id === "rel_judo_developed_by")).not.toHaveProperty("claimed");
-    expect(text).toContain("- Karate -> Judo (DISTINCT_FROM, claimed): ");
-    expect(text).toContain("- Judo -> Jigoro Kano (DEVELOPED_BY): ");
+    expect(text).toContain("- Karate -> Judo (DISTINCT_FROM, claimed, rel_karate_origin): ");
+    expect(text).toContain("- Judo -> Jigoro Kano (DEVELOPED_BY, rel_judo_developed_by): ");
     expect(neighborhood(claimed, "karate", 1).relations.map((hit) => hit.claimed)).toEqual([true]);
     const scoped = scopeDataset(claimed, { documentIds: ["doc_karate"] });
     expect(scoped.edges.find((edge) => edge.id === "rel_karate_origin")?.assertion).toBe("claimed");

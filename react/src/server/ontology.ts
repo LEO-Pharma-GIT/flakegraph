@@ -37,6 +37,7 @@ Given a description of the graph someone wants, propose the entity types and rel
 // A reasoning model behind the gateway takes tens of seconds to write a
 // proposal; the button says it is working.
 const PROPOSAL_TIMEOUT_MS = 90_000;
+const PROPOSAL_MAX_OUTPUT_TOKENS = 4_096;
 
 export interface OntologyProposalResult extends OntologyProposal {
   /** Whether a model wrote the proposal or the word heuristic did. */
@@ -65,6 +66,7 @@ export async function proposeOntologyForIntent(
         output: Output.object({ schema: ProposalSchema }),
         ...model.structuredOptions,
         temperature: 0,
+        maxOutputTokens: PROPOSAL_MAX_OUTPUT_TOKENS,
         abortSignal: AbortSignal.timeout(PROPOSAL_TIMEOUT_MS),
         instructions: SYSTEM,
         prompt: `The graph I want: ${intent.trim()}`,

@@ -8,7 +8,11 @@ import {
   TOOL_DEFAULT_TOP_K,
   TOOL_DOCUMENT_QUOTE_DEFAULT,
   TOOL_DOCUMENT_QUOTE_MAX,
+  TOOL_ENTITY_DESCRIPTION_CHAR_LIMIT,
   TOOL_MAX_TOP_K,
+  TOOL_NEIGHBORHOOD_ENTITY_MAX,
+  TOOL_NEIGHBORHOOD_RELATION_MAX,
+  TOOL_RELATION_SEGMENT_CHAR_LIMIT,
 } from "./constants";
 import { formatGraphSearch, hasGraphHit } from "./format";
 import { graphSearch } from "./graph-search";
@@ -271,21 +275,35 @@ If the user names a document, pass its exact document id from listDocuments. Omi
           return structuredObservation("UNKNOWN_ENTITY", { entityId });
         }
         const result = neighborhood(session.dataset, entityId, hops ?? 1);
+        // Three hops from a hub reach most of a graph: keep the strongest
+        // relations and the entities they join, and say how much is left out.
+        const relations = result.relations
+          .toSorted((left, right) => right.weight - left.weight)
+          .slice(0, TOOL_NEIGHBORHOOD_RELATION_MAX);
+        const joined = new Set(relations.flatMap((relation) => [relation.sourceId, relation.targetId]));
+        const entities = result.entities
+          .filter((entity) => entity.id === entityId || joined.has(entity.id))
+          .toSorted((left, right) => right.score - left.score)
+          .slice(0, TOOL_NEIGHBORHOOD_ENTITY_MAX);
         return {
-          entities: result.entities.map((entity) => ({
+          entities: entities.map((entity) => ({
             id: entity.id,
             name: entity.name,
             type: entity.type,
-            description: entity.description,
+            description: entity.description.slice(0, TOOL_ENTITY_DESCRIPTION_CHAR_LIMIT),
           })),
-          relations: result.relations.map((relation) => ({
+          relations: relations.map((relation) => ({
             id: relation.id,
             source: relation.sourceName,
             target: relation.targetName,
             type: relation.relationType,
-            description: relation.description,
+            description: relation.description.slice(0, TOOL_RELATION_SEGMENT_CHAR_LIMIT),
             ...(relation.claimed ? { claimed: true } : {}),
           })),
+          leftOut: {
+            entities: result.entities.length - entities.length,
+            relations: result.relations.length - relations.length,
+          },
         };
       },
     }),

@@ -26,6 +26,14 @@ export const RERANK_CHUNK_PROMPT_CHAR_LIMIT = 1_500;
 export const RERANK_COMMUNITY_PROMPT_CHAR_LIMIT = 1_500;
 export const RERANK_ENTITY_PROMPT_CHAR_LIMIT = 800;
 export const RERANK_LLM_CALL_TIMEOUT_MS = 20_000;
+// The gateway keeps a request running after its caller gives up, and a model
+// that never closes its JSON writes until the context window is full: about an
+// hour holding one of an engine's slots. So every helper call has a ceiling
+// well above what it needs, and a time limit of its own.
+export const RERANK_MAX_OUTPUT_TOKENS = 32;
+export const PLANNER_MAX_OUTPUT_TOKENS = 512;
+export const DRIFT_MAX_OUTPUT_TOKENS = 1_024;
+export const HELPER_LLM_CALL_TIMEOUT_MS = 60_000;
 export const LLM_RERANK_CONCURRENCY = 4;
 
 export const GRAPH_SEARCH_CONTEXT_CHAR_BUDGET = 40_000;
@@ -38,6 +46,8 @@ export const TOOL_DEFAULT_TOP_K = 20;
 export const TOOL_MAX_TOP_K = 40;
 export const TOOL_DOCUMENT_QUOTE_DEFAULT = 8;
 export const TOOL_DOCUMENT_QUOTE_MAX = 20;
+export const TOOL_NEIGHBORHOOD_ENTITY_MAX = 40;
+export const TOOL_NEIGHBORHOOD_RELATION_MAX = 60;
 
 export const ENTITY_SOURCE_CHUNK_CHAR_LIMIT = 2_000;
 export const ENTITY_SOURCE_CHUNK_MAX = 50;
@@ -63,6 +73,12 @@ export const DRIFT_FOLLOWUP_PRUNE_DISTANCE = 0.75;
 
 export const ACCESSIBLE_RELATIONS_LIMIT = 200;
 export const AGENT_MAX_STEPS = 8;
+// Roughly 80,000 tokens, leaving a long way to the 131,072-token context window.
+export const ASK_EVIDENCE_CHAR_BUDGET = 200_000;
+export const ASK_ANSWER_MAX_OUTPUT_TOKENS = 8_192;
+// When the model stops searching and answers from what it has. Well inside the
+// stream's limit, because on a busy engine the answer itself takes minutes.
+export const ASK_ANSWER_BY_MS = 10 * 60_000;
 // How long one question may take, tool calls and reasoning included. Generous,
 // because a reasoning model on a busy engine takes minutes, and a question cut
 // short has no answer at all.

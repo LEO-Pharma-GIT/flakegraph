@@ -6,6 +6,7 @@ import {
   RERANK_COMMUNITY_PROMPT_CHAR_LIMIT,
   RERANK_ENTITY_PROMPT_CHAR_LIMIT,
   RERANK_LLM_CALL_TIMEOUT_MS,
+  RERANK_MAX_OUTPUT_TOKENS,
   RERANK_SCORE_MAX,
   RERANK_SCORE_MIN,
 } from "./constants";
@@ -15,7 +16,6 @@ import { errorMessage } from "./errors";
 
 const RelevanceSchema = z.object({
   score: z.number().int().min(RERANK_SCORE_MIN).max(RERANK_SCORE_MAX),
-  rationale: z.string().max(240),
 });
 
 export interface RerankProgressUpdate {
@@ -35,7 +35,7 @@ Rules:
 - ${RERANK_SCORE_MIN} = the ${itemNoun} is unrelated.
 - Middle scores reflect partial or tangential relevance.
 - Score only on the content provided. Do NOT speculate about what may surround the ${itemNoun} in the source.
-- Return exactly one JSON object with keys "score" and "rationale"; do not return an array, markdown, or multiple objects.`;
+- Return exactly one JSON object with the key "score"; do not return an array, markdown, or multiple objects.`;
 }
 
 export async function rerankEntities(
@@ -150,6 +150,7 @@ async function rerankWithLlm<T>(args: {
         output: Output.object({ schema: RelevanceSchema }),
         ...model.structuredOptions,
         temperature: 0,
+        maxOutputTokens: RERANK_MAX_OUTPUT_TOKENS,
         abortSignal: AbortSignal.timeout(RERANK_LLM_CALL_TIMEOUT_MS),
         instructions: prompt.system,
         prompt: prompt.user,

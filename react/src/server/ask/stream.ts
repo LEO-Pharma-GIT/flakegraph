@@ -255,13 +255,20 @@ function streamAskNdjson(args: {
           timeout: ASK_STREAM_TIMEOUT_MS,
         });
         const toolNames = new Map<string, string>();
-        const textParts: string[] = [];
+        // The text of the step being read. What the model writes before a tool
+        // call is working out loud; the answer is what it writes last.
+        let textParts: string[] = [];
+        let earlierText = "";
         let timedOut = false;
         let grounding = emptyGrounding();
         const seenCitations = new Set<string>();
         for await (const chunk of uiStream) {
           if (args.request.signal.aborted) {
             throw new DOMException("Ask aborted", "AbortError");
+          }
+          if (chunk.type === "start-step" && textParts.length > 0) {
+            earlierText = textParts.join("");
+            textParts = [];
           }
           if (chunk.type === "text-delta" && chunk.delta) {
             textParts.push(chunk.delta);
@@ -299,7 +306,7 @@ function streamAskNdjson(args: {
         }
         // A question without an answer ends in an error, never in a `done`
         // that a caller could pass on as the graph's answer.
-        const summary = textParts.join("").trim();
+        const summary = (textParts.join("") || earlierText).trim();
         if (timedOut) {
           send({
             type: "error",

@@ -78,19 +78,24 @@ describe("console calls to the language model", () => {
     expect(calls[0]?.prompt.map((message) => message.role)).toEqual(["system", "user"]);
     // A helper call asks for no reasoning: the plan is the same, tens of seconds sooner.
     expect(calls[0]?.providerOptions?.openai?.reasoningEffort).toBe("none");
+    expect(calls[0]?.maxOutputTokens).toBeGreaterThan(0);
+    expect(calls[0]?.abortSignal).toBeDefined();
   });
 
   it("reranks entities by the model's scores", async () => {
     calls.length = 0;
     answers.push(
-      JSON.stringify({ score: 1, rationale: "off topic" }),
-      JSON.stringify({ score: 9, rationale: "the founder" }),
+      JSON.stringify({ score: 1 }),
+      JSON.stringify({ score: 9 }),
     );
 
     const reranked = await rerankEntities("Who founded judo?", [entity("karate", 0.1), entity("kano", 0.2)], 1);
 
     expect(reranked.map((hit) => hit.id)).toEqual(["kano"]);
     expect(calls).toHaveLength(2);
+    // Past its answer a helper call stops: the gateway would otherwise keep it
+    // running on an engine for as long as the model keeps writing.
+    expect(calls[0]?.maxOutputTokens).toBeLessThanOrEqual(32);
   });
 
   it("asks the model for DRIFT follow-up questions", async () => {
@@ -114,6 +119,8 @@ describe("console calls to the language model", () => {
     const followUps = await generateDriftFollowUps("How did judo spread?", [primer]);
 
     expect(followUps.map((item) => item.question)).toEqual(["Which schools did Kano's students found?"]);
+    expect(calls[0]?.maxOutputTokens).toBeGreaterThan(0);
+    expect(calls[0]?.abortSignal).toBeDefined();
   });
 
   it("proposes an ontology from the model rather than the nouns of the description", async () => {
@@ -139,5 +146,6 @@ describe("console calls to the language model", () => {
     expect(proposal.types).toEqual(["SPONSOR", "DRUG", "TRIAL"]);
     expect(proposal.relations).toEqual(["SPONSORS", "RELATED_TO"]);
     expect(proposal.descriptions.DRUG).toBe("An investigational product.");
+    expect(calls[0]?.maxOutputTokens).toBeGreaterThan(0);
   });
 });

@@ -68,7 +68,7 @@ export function formatGraphSearch(result: GraphSearchResult): FormattedGraphCont
     const lines = ["## Entities and relations"];
     if (consume(lines[0]!)) {
       for (const entity of entities.slice(0, TOOL_ENTITY_RESULTS_SLICE)) {
-        const rendered = `- **${entity.name}** (${entity.type}): ${entity.description.slice(0, TOOL_ENTITY_DESCRIPTION_CHAR_LIMIT)}`;
+        const rendered = `- **${entity.name}** (${entity.type}, ${entity.id}): ${entity.description.slice(0, TOOL_ENTITY_DESCRIPTION_CHAR_LIMIT)}`;
         if (!consume(rendered)) {
           break;
         }
@@ -83,7 +83,7 @@ export function formatGraphSearch(result: GraphSearchResult): FormattedGraphCont
         }
       }
       for (const relation of result.relations.slice(0, TOOL_RELATION_RESULTS_SLICE)) {
-        const rendered = `- ${relation.sourceName} -> ${relation.targetName} (${relation.relationType}${relation.claimed ? ", claimed" : ""}): ${relation.description.slice(0, TOOL_RELATION_SEGMENT_CHAR_LIMIT)}`;
+        const rendered = `- ${relation.sourceName} -> ${relation.targetName} (${relation.relationType}${relation.claimed ? ", claimed" : ""}, ${relation.id}): ${relation.description.slice(0, TOOL_RELATION_SEGMENT_CHAR_LIMIT)}`;
         if (!consume(rendered)) {
           break;
         }

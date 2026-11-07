@@ -1,5 +1,6 @@
 import { generateText, Output } from "ai";
 import { z } from "zod";
+import { HELPER_LLM_CALL_TIMEOUT_MS, PLANNER_MAX_OUTPUT_TOKENS } from "./constants";
 import { dedupeKeywords, tokenize } from "./score";
 import type { QueryMode, QueryRetrievalPlan } from "./types";
 import { resolveAskModel } from "./model";
@@ -41,6 +42,8 @@ export async function planQueryRetrieval(query: string): Promise<QueryRetrievalP
       model: model.languageModel,
       output: Output.object({ schema: QueryPlanSchema }),
       ...model.structuredOptions,
+      maxOutputTokens: PLANNER_MAX_OUTPUT_TOKENS,
+      abortSignal: AbortSignal.timeout(HELPER_LLM_CALL_TIMEOUT_MS),
       instructions: `You plan retrieval for a graph-based RAG system. Given a user question, return JSON with:
 
 - mode: "local" for questions about specific named entities / relationships; "global" for overarching themes, summaries, and cross-document patterns; "hybrid" when the question mixes both.

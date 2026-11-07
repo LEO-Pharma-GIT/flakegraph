@@ -60,6 +60,17 @@ describe("the NDJSON ask stream", () => {
     expect(last).toMatchObject({ type: "done", answer: { summary: "An agency did." } });
   });
 
+  it("answers with what the model wrote last, not what it said on the way", async () => {
+    agentChunks = [
+      { type: "start-step" },
+      { type: "text-delta", id: "a", delta: "Let me search for that." },
+      { type: "tool-input-start", toolCallId: "t1", toolName: "searchGraph" },
+      { type: "start-step" },
+      { type: "text-delta", id: "b", delta: "An agency did." },
+    ];
+    expect((await ask()).at(-1)).toMatchObject({ type: "done", answer: { summary: "An agency did." } });
+  });
+
   it("ends a question the time limit cut short with a timeout error, not an answer", async () => {
     agentChunks = [{ type: "abort", reason: "TimeoutError" }];
     const events = await ask();
