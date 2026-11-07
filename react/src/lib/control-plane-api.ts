@@ -422,9 +422,9 @@ export const CONTROL_PLANE_ENDPOINTS: readonly ApiEndpoint[] = [
     area: "graphs",
     access: "read",
     graph: "read",
-    purpose: "A run's graph: entities, relations, communities, evidence, documents, chunks and known gaps.",
+    purpose: "A run's graph: entities, relations, communities, evidence, documents, chunk references and known gaps.",
     input: "{ runId }",
-    returns: "GraphDataset: graphId, nodes, edges, communities, evidence, documents, chunks, discardedWindows, rejectedRecords, …",
+    returns: "GraphDataset: graphId, nodes, edges, communities, evidence, documents, chunks (id and document_id, without their text), discardedWindows, rejectedRecords, …",
   },
   {
     name: "graphs.rename",

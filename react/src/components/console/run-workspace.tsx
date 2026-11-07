@@ -65,6 +65,7 @@ import { tailLabel } from "@/lib/paging";
 import { formatDocumentPhase, formatDuration, formatInstant, formatRelativeTime, titleCaseStage } from "@/lib/utils";
 import type { DocumentStatus } from "@/server/documents";
 import { statusSentence } from "@/lib/status-sentence";
+import { FINISHED_GRAPH_QUERY } from "./graph-query";
 
 export function RunWorkspace({
   runId,
@@ -97,7 +98,7 @@ export function RunWorkspace({
   );
   const graph = trpc.graphs.loadRun.useQuery(
     { runId },
-    { enabled: isSuccessStatus(run.data?.status ?? "") },
+    { ...FINISHED_GRAPH_QUERY, enabled: isSuccessStatus(run.data?.status ?? "") },
   );
   const quality = trpc.graphs.quality.useQuery(
     { runId },

@@ -1,7 +1,7 @@
 "use client";
 
 import { MutationCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { httpBatchLink } from "@trpc/client";
+import { httpBatchLink, httpLink, splitLink } from "@trpc/client";
 import { createTRPCReact } from "@trpc/react-query";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { useState, type ReactNode } from "react";
@@ -41,6 +41,31 @@ export function shouldRetry(failureCount: number, error: unknown): boolean {
   return failureCount < 1 && !(typeof code === "string" && REFUSALS.has(code));
 }
 
+const linkOptions = {
+  url: "/api/trpc",
+  transformer: superjson,
+  headers() {
+    const runtime = getRuntimeHeader();
+    return runtime ? { "x-flakegraph-runtime": runtime } : {};
+  },
+  // While the control plane restarts, the edge answers in prose
+  // ("no available server"); the parse error that follows says
+  // nothing to anyone. Name the outage instead.
+  fetch: async (input: RequestInfo | URL | string, init?: RequestInit) => {
+    const response = await fetch(input, init);
+    const type = response.headers.get("content-type") ?? "";
+    if (!response.ok && !type.includes("json")) {
+      const text = (await response.text()).trim().slice(0, 120);
+      throw new Error(
+        response.status >= 500
+          ? `The control plane is not answering (${response.status}${text ? `: ${text}` : ""}). It may be restarting; try again in a moment.`
+          : `The control plane refused the request (${response.status}${text ? `: ${text}` : ""}).`,
+      );
+    }
+    return response;
+  },
+};
+
 export function AppProviders({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
     () =>
@@ -62,29 +87,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const [client] = useState(() =>
     trpc.createClient({
       links: [
-        httpBatchLink({
-          url: "/api/trpc",
-          transformer: superjson,
-          headers() {
-            const runtime = getRuntimeHeader();
-            return runtime ? { "x-flakegraph-runtime": runtime } : {};
-          },
-          // While the control plane restarts, the edge answers in prose
-          // ("no available server"); the parse error that follows says
-          // nothing to anyone. Name the outage instead.
-          fetch: async (input, init) => {
-            const response = await fetch(input, init);
-            const type = response.headers.get("content-type") ?? "";
-            if (!response.ok && !type.includes("json")) {
-              const text = (await response.text()).trim().slice(0, 120);
-              throw new Error(
-                response.status >= 500
-                  ? `The control plane is not answering (${response.status}${text ? `: ${text}` : ""}). It may be restarting; try again in a moment.`
-                  : `The control plane refused the request (${response.status}${text ? `: ${text}` : ""}).`,
-              );
-            }
-            return response;
-          },
+        // A batch answers when its slowest query does, so a whole graph travels
+        // alone and everything asked for beside it arrives when it is ready.
+        splitLink({
+          condition: (operation) => operation.path === "graphs.loadRun",
+          true: httpLink(linkOptions),
+          false: httpBatchLink(linkOptions),
         }),
       ],
     }),

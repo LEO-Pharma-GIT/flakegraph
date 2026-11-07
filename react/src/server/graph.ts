@@ -1,12 +1,64 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { existsSync } from "node:fs";
-import { evidenceEntityId, evidenceRelationId } from "@/lib/evidence";
+import { evidenceDocumentId, evidenceEntityId, evidenceRelationId } from "@/lib/evidence";
+import { GraphCache } from "./graph-cache";
 import { capGraph } from "./graph-filter";
 import { GRAPH_REVIEW_ROW_LIMITS, type GraphDataset } from "./protocol/schema";
 import type { GraphLoadOptions } from "./protocol/runtime";
 
+/** About a gigabyte of parsed rows: several fleet graphs, within Node's default heap. */
+const CACHED_GRAPH_ROWS = 1_000_000;
+const CACHED_GRAPH_IDLE_MS = 10 * 60_000;
+
+const shared = globalThis as typeof globalThis & { flakegraphGraphCache?: GraphCache<GraphDataset> };
+
+/** One cache for the process: Next may bundle the routes that read graphs apart. */
+function graphCache(): GraphCache<GraphDataset> {
+  shared.flakegraphGraphCache ??= new GraphCache(datasetRows, {
+    maxRows: CACHED_GRAPH_ROWS,
+    idleMs: CACHED_GRAPH_IDLE_MS,
+  });
+  return shared.flakegraphGraphCache;
+}
+
+function datasetRows(dataset: GraphDataset): number {
+  return Object.values(dataset).reduce((total, value) => total + (Array.isArray(value) ? value.length : 0), 0);
+}
+
+/** Changes whenever a graph's files are replaced, whichever format they are in. */
+async function graphVersion(directory: string): Promise<string> {
+  const files = ["nodes.parquet", "nodes.json", "edges.parquet", "edges.json", "run_report.json"];
+  const stamps = await Promise.all(
+    files.map(async (file) => {
+      const found = await stat(path.join(directory, file)).catch(() => null);
+      return found ? `${found.mtimeMs}:${found.size}` : "-";
+    }),
+  );
+  return stamps.join("/");
+}
+
+/**
+ * A graph as the browser uses it. Chunks are most of a graph's bytes and the
+ * browser only follows them from an entity to its document, so they travel as
+ * references; their text stays on the server for retrieval.
+ */
+export function graphForBrowser(dataset: GraphDataset): GraphDataset {
+  return {
+    ...dataset,
+    chunks: dataset.chunks.map((chunk) => ({ id: chunk.id, document_id: evidenceDocumentId(chunk) })),
+  };
+}
+
 export async function loadLocalGraph(directory: string, options: GraphLoadOptions = {}): Promise<GraphDataset> {
+  if (!existsSync(directory)) {
+    throw new Error(`No graph artifact directory exists at this location: ${directory}`);
+  }
+  const key = `${options.purpose ?? "review"}:${directory}`;
+  return graphCache().get(key, await graphVersion(directory), () => readLocalGraph(directory, options));
+}
+
+async function readLocalGraph(directory: string, options: GraphLoadOptions): Promise<GraphDataset> {
   if (!existsSync(directory)) {
     throw new Error(`No graph artifact directory exists at this location: ${directory}`);
   }
@@ -59,7 +111,11 @@ export async function loadLocalGraph(directory: string, options: GraphLoadOption
   const documents = await readOptionalTable(directory, "documents");
   // The values each relation states live on its observations; the review reads
   // them on the edge they describe.
-  const observations = await readOptionalTable(directory, "edge_observations");
+  const observations = await readOptionalTable(directory, "edge_observations", [
+    "edge_id",
+    "quantities",
+    "proposed_relation_type",
+  ]);
   const quantitiesByEdge = edgeQuantities(observations);
   const statedByEdge = edgeStatedTypes(observations);
   for (const edge of edges) {
@@ -184,11 +240,12 @@ async function readTable(
   directory: string,
   name: string,
   limit: number,
+  only?: readonly string[],
 ): Promise<[Record<string, unknown>[], number]> {
   const parquet = path.join(directory, `${name}.parquet`);
   const json = path.join(directory, `${name}.json`);
   if (existsSync(parquet)) {
-    const rows = await readParquetRows(parquet, limit);
+    const rows = await readParquetRows(parquet, limit, only);
     const count = await countParquet(parquet);
     return [rows, count];
   }
@@ -199,21 +256,29 @@ async function readTable(
   return [[], 0];
 }
 
-async function readOptionalTable(directory: string, name: string): Promise<Record<string, unknown>[]> {
-  const [rows] = await readTable(directory, name, Number.MAX_SAFE_INTEGER);
+async function readOptionalTable(
+  directory: string,
+  name: string,
+  only?: readonly string[],
+): Promise<Record<string, unknown>[]> {
+  const [rows] = await readTable(directory, name, Number.MAX_SAFE_INTEGER, only);
   return rows;
 }
 
 /** Column names the console never renders and that dominate a table's size. */
 const VECTOR_COLUMN = /(^|_)embedding(s)?$/;
 
-async function readParquetRows(file: string, limit: number): Promise<Record<string, unknown>[]> {
+async function readParquetRows(
+  file: string,
+  limit: number,
+  only?: readonly string[],
+): Promise<Record<string, unknown>[]> {
   const { asyncBufferFromFile, parquetMetadataAsync, parquetReadObjects, parquetSchema } = await import("hyparquet");
   const buffer = await asyncBufferFromFile(file);
   const metadata = await parquetMetadataAsync(buffer);
   const columns = parquetSchema(metadata)
     .children.map((child) => child.element.name)
-    .filter((name) => !VECTOR_COLUMN.test(name));
+    .filter((name) => (only ? only.includes(name) : !VECTOR_COLUMN.test(name)));
   const rows = await parquetReadObjects({
     file: buffer,
     metadata,

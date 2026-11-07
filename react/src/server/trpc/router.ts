@@ -17,6 +17,7 @@ import {
   sessionProcedure,
   type TrpcContext,
 } from "./init";
+import { graphForBrowser } from "../graph";
 import { qualityForGraph } from "../quality";
 import { GOLD_MAX_BYTES, GoldValidationError, goldTemplate, removeUploadedGold, saveUploadedGold, validateGold } from "../gold-store";
 import { inspectFromDataset } from "../inspect-report";
@@ -340,7 +341,7 @@ export const appRouter = router({
       ),
     loadRun: publicProcedure.input(runIdInput).query(async ({ ctx, input }) => {
       const snapshot = await runEffect(ctx.controlPlane.getRun(input.runId));
-      return runEffect(ctx.controlPlane.loadRunGraph(snapshot));
+      return graphForBrowser(await runEffect(ctx.controlPlane.loadRunGraph(snapshot)));
     }),
     rename: protectedProcedure
       .input(z.object({ graphId: safeId, displayName: z.string().min(1) }))

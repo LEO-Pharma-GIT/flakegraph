@@ -5,6 +5,7 @@ import { trpc } from "@/components/providers";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { FINISHED_GRAPH_QUERY } from "./graph-query";
 
 export function CommandPalette({
   runId,
@@ -32,7 +33,10 @@ export function CommandPalette({
   const [active, setActive] = useState(0);
   const runs = trpc.runs.list.useQuery({ limit: 100 }, { enabled: open });
   const workspace = trpc.workspace.get.useQuery(undefined, { enabled: open });
-  const graph = trpc.graphs.loadRun.useQuery({ runId: runId ?? "" }, { enabled: open && Boolean(runId) });
+  const graph = trpc.graphs.loadRun.useQuery(
+    { runId: runId ?? "" },
+    { ...FINISHED_GRAPH_QUERY, enabled: open && Boolean(runId) },
+  );
   const analyst = role === "analyst";
   const actions = useMemo(() => {
     const items = [
