@@ -354,6 +354,33 @@ def test_engine_tuning_flags_can_be_configured_away() -> None:
     assert "" not in engine["args"]
 
 
+def test_the_picker_can_tokenize_prompts_on_every_engine() -> None:
+    """Without the render routes every replica scores zero and prefix routing is off."""
+
+    engine = _container(_pod(_one(_render(_SERVING), "StatefulSet", _VLLM)), "vllm")
+    assert "--enable-scale-out" in engine["args"]
+
+    without = _render((*_SERVING, "modelServing.kvEvents.enabled=false"))
+    assert "--enable-scale-out" not in _container(_pod(_one(without, "StatefulSet", _VLLM)), "vllm")["args"]
+
+
+def test_prefix_checkpoints_stay_off_until_a_hybrid_model_asks() -> None:
+    default = _container(_pod(_one(_render(_SERVING), "StatefulSet", _VLLM)), "vllm")["args"]
+    assert "--prefix-cache-retention-interval" not in default
+    assert "--enable-mamba-shared-prefix-checkpoint" not in default
+
+    hybrid = _render(
+        (
+            *_SERVING,
+            "modelServing.server.prefixCacheRetentionInterval=4096",
+            "modelServing.server.mambaSharedPrefixCheckpoint=true",
+        )
+    )
+    engine = _container(_pod(_one(hybrid, "StatefulSet", _VLLM)), "vllm")
+    assert _args(engine)["--prefix-cache-retention-interval"] == "4096"
+    assert "--enable-mamba-shared-prefix-checkpoint" in engine["args"]
+
+
 def test_priority_scheduling_cannot_be_configured_away() -> None:
     """Render the flag unconditionally; without it every stamp is silently ignored.
 

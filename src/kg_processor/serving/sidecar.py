@@ -78,9 +78,19 @@ UNAUTHENTICATED_PATHS = frozenset(
     }
 )
 
-# Adapter management mutates what the pod serves. The platform pins one model per
-# pod, so these are refused here rather than guarded by a key nobody should hold.
-REFUSED_PATHS = frozenset({"/load_lora_adapter", "/unload_lora_adapter"})
+# Adapter management mutates what the pod serves, and the platform pins one model
+# per pod. The token-level routes come with the render routes the picker needs:
+# they generate without passing the priority stamp or the gate, and abort any
+# caller's request. All are refused here rather than guarded by a key.
+REFUSED_PATHS = frozenset(
+    {
+        "/load_lora_adapter",
+        "/unload_lora_adapter",
+        "/inference/v1/generate",
+        "/inference/v1/abort_requests",
+        "/abort_requests",
+    }
+)
 
 # vLLM reads ``priority`` from the request body on its generation routes. Other
 # routes have no use for it, and adding an unexpected field to their payloads
@@ -821,15 +831,15 @@ async def _answer_without_inference(
 ) -> Response | None:
     """Answer the routes the engine must never see, or ``None`` to relay.
 
-    Adapter management is refused outright, the scrape is merged here, and the
-    balancer's admission route is the sidecar's own. Everything else is
-    inference and goes through authentication and the gate.
+    Routes outside the serving contract are refused outright, the scrape is
+    merged here, and the balancer's admission route is the sidecar's own.
+    Everything else is inference and goes through authentication and the gate.
     """
 
     if route in REFUSED_PATHS:
         refused = _Accounting(metrics, UNAUTHENTICATED_CLASS, route)
         return refused.close(
-            JSONResponse({"error": "adapter management is disabled"}, status_code=404)
+            JSONResponse({"error": "this route is disabled"}, status_code=404)
         )
     if route == "/metrics":
         return await _scrape(request.app.state.client, metrics)

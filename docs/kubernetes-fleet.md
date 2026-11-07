@@ -604,7 +604,15 @@ loopback. Envoy terminates the connection, the picker names a replica in
 The picker scores queue depth, KV utilisation, and prefix affinity, weighted by
 `gateway.placement.endpointPicker.scorerWeights`; with
 `modelServing.kvEvents.enabled` it indexes what each replica actually holds
-rather than hashing prefixes.
+rather than hashing prefixes. It turns a prompt into token ids through the
+engine's render routes, so the chart starts engines with `--enable-scale-out`.
+That flag also opens token-level generate and abort routes, which skip priority
+stamping and admission, so the sidecar refuses them.
+
+On a hybrid attention and state-space model a prompt can only resume from a
+saved state, so `modelServing.server.prefixCacheRetentionInterval` sets how many
+tokens separate them. It must be a multiple of the engine's scheduler block
+size, and an engine given any other value says which and refuses to start.
 
 The picker selects engine pods by label rather than through an `InferencePool`,
 so no Gateway API Inference Extension CRDs are required.

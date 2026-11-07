@@ -129,14 +129,20 @@ def test_probe_and_scoring_paths_stay_reachable_without_a_key() -> None:
         assert client.post("/v1/completions/render", json={}).status_code != 401
 
 
-def test_adapter_management_is_refused_outright() -> None:
+@pytest.mark.parametrize(
+    "route",
+    [
+        "/load_lora_adapter",
+        "/unload_lora_adapter",
+        "/inference/v1/generate",
+        "/inference/v1/abort_requests",
+        "/abort_requests",
+    ],
+)
+def test_routes_outside_the_serving_contract_are_refused_outright(route: str) -> None:
     upstream = RecordingUpstream()
     with _client(upstream) as client:
-        response = client.post(
-            "/load_lora_adapter",
-            headers={"Authorization": "Bearer sk-chat"},
-            json={"lora_name": "x", "lora_path": "/tmp/x"},
-        )
+        response = client.post(route, headers={"Authorization": "Bearer sk-chat"}, json={})
 
     assert response.status_code == 404
     assert upstream.requests == []

@@ -404,6 +404,13 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "prefixCacheRetentionInterval": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "mambaSharedPrefixCheckpoint": {
+              "type": "boolean"
+            },
             "tensorParallelSize": {
               "type": "integer",
               "minimum": 1

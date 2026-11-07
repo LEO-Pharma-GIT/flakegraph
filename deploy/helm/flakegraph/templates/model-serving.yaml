@@ -298,6 +298,16 @@ spec:
             - --enable-chunked-prefill
             - --async-scheduling
             - --enable-prefix-caching
+            {{- with .Values.modelServing.server.prefixCacheRetentionInterval }}
+            # A hybrid model resumes a prompt only from a saved state. By default
+            # only the newest survives, so a conversation that grows by a turn
+            # reads most of itself again; this keeps one every so many tokens.
+            - --prefix-cache-retention-interval
+            - {{ . | quote }}
+            {{- end }}
+            {{- if .Values.modelServing.server.mambaSharedPrefixCheckpoint }}
+            - --enable-mamba-shared-prefix-checkpoint
+            {{- end }}
             {{- if .Values.modelServing.server.skipMultimodalProfiling }}
             # A vision-language checkpoint served text-only. Profiling a dummy
             # image and video anyway reserves activation memory for encoders
@@ -312,6 +322,10 @@ spec:
             - {{ toJson . | quote }}
             {{- end }}
             {{- if .Values.modelServing.kvEvents.enabled }}
+            # The picker turns a prompt into token ids through the render routes,
+            # which the engine answers 403 without this. The token-level routes
+            # the same flag opens are refused by the sidecar.
+            - --enable-scale-out
             # Publishing cache events lets the endpoint picker route on what each
             # replica actually holds rather than on a hash of the prefix.
             # The topic is not decoration. The picker subscribes with the ZMQ

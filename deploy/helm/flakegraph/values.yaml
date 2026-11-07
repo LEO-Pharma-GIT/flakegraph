@@ -294,6 +294,13 @@ modelServing:
     # supports the longer window, and re-derive the sequence limit with it.
     maxModelLen: 32768
     maxNumBatchedTokens: 16384
+    # Hybrid attention and state-space models only. Tokens between saved states
+    # a later prompt can resume from; a multiple of the engine's scheduler block
+    # size, which it names at startup if this is wrong. 0 keeps the newest only.
+    prefixCacheRetentionInterval: 0
+    # Also save a state where two prompts were seen to diverge. Needs speculative
+    # decoding on a hybrid model; on anything else it has no effect.
+    mambaSharedPrefixCheckpoint: false
     # Must stay below the max_concurrent the sizing block implies. The sidecar
     # recomputes that at startup and refuses to serve if this crosses it: an
     # engine that runs out of KV blocks preempts a *running* request and
@@ -426,10 +433,11 @@ modelServing:
     enabled: true
     port: 5557
     replayPort: 5558
-    # Must match the engine's --block-size. vLLM's default is 16, and the
-    # picker hashes blocks of this many tokens to compare against the
-    # events - a mismatch hashes differently sized blocks, which agree
-    # about nothing while reporting no error.
+    # Must divide every block size the engine publishes, which on a hybrid model
+    # can differ between cache groups. vLLM's default is 16, and the picker
+    # hashes blocks of this many tokens to compare against the events - a size
+    # that does not divide them hashes blocks that agree about nothing while
+    # reporting no error.
     blockSizeTokens: 16
   # The enforcement floor. Its Secret maps bearer keys to consumer classes; the
   # bands are the values stamped for each class. Lower is served first, so an
