@@ -838,9 +838,7 @@ async def _answer_without_inference(
 
     if route in REFUSED_PATHS:
         refused = _Accounting(metrics, UNAUTHENTICATED_CLASS, route)
-        return refused.close(
-            JSONResponse({"error": "this route is disabled"}, status_code=404)
-        )
+        return refused.close(JSONResponse({"error": "this route is disabled"}, status_code=404))
     if route == "/metrics":
         return await _scrape(request.app.state.client, metrics)
     if route == ADMISSION_ROUTE:

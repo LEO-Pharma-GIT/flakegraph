@@ -361,7 +361,8 @@ def test_the_picker_can_tokenize_prompts_on_every_engine() -> None:
     assert "--enable-scale-out" in engine["args"]
 
     without = _render((*_SERVING, "modelServing.kvEvents.enabled=false"))
-    assert "--enable-scale-out" not in _container(_pod(_one(without, "StatefulSet", _VLLM)), "vllm")["args"]
+    engine = _container(_pod(_one(without, "StatefulSet", _VLLM)), "vllm")
+    assert "--enable-scale-out" not in engine["args"]
 
 
 def test_prefix_checkpoints_stay_off_until_a_hybrid_model_asks() -> None:
