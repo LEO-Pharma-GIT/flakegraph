@@ -120,10 +120,15 @@ class SnowflakeCortexLlmProvider:
         schema-conforming object is returned as the task payload.
         """
 
+        if request.images:
+            raise ValueError(
+                "snowflake_cortex structured completion does not accept images; "
+                "read pictures with an OpenAI-compatible, Azure or Ollama model"
+            )
         successful_metadata: dict[str, Any] = {}
 
         def send(
-            messages: list[dict[str, str]],
+            messages: list[dict[str, Any]],
             _response_format: dict[str, object],
             max_tokens: int,
             _seed: int | None,

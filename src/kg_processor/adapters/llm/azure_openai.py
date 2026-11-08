@@ -9,6 +9,7 @@ import httpx
 
 from kg_processor.adapters.llm.openai_common import (
     ChatCompletion,
+    ChatMessage,
     chat_completion_from_payload,
     send_with_http_retry,
 )
@@ -56,13 +57,14 @@ class AzureOpenAILlmProvider(OpenAICompatibleLlmProvider):
         return LlmCapabilities(
             supports_seed=False,
             max_output_tokens=self._max_output_tokens or _STRUCTURED_CHAT_MAX_TOKENS,
+            supports_images=True,
         )
 
     def _chat_content(
         self,
         model: str,
         timeout_seconds: int,
-        messages: list[dict[str, str]],
+        messages: list[ChatMessage],
         *,
         temperature: float = 0.0,
         max_tokens: int = DEFAULT_CHAT_MAX_TOKENS,

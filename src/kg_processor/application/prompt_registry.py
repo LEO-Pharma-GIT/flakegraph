@@ -49,6 +49,8 @@ PROMPT_REVISIONS = {
     "entity_description_batch_merge": "entity-description-batch-merge-v1",
     "community_report": "community-report-v2",
     "community_report_batch": "community-report-batch-v2",
+    "figure_reading": "figure-reading-v1",
+    "document_card": "document-card-v1",
 }
 
 

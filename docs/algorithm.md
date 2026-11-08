@@ -10,8 +10,8 @@ run locally, across a Kubernetes fleet, or with Snowflake providers and storage.
 
 | Stage | Input | Work performed | Durable result |
 | --- | --- | --- | --- |
-| Prepare | Source files | OCR or text extraction, layout normalization, stable document identity, bibliography-aware chunking, and bounded document windows | Documents, pages, blocks, assets, and chunks with source offsets |
-| Document context | Bounded front matter | Identify ontology-declared focal subjects such as the paper, method, product, or organization once per document; profile a dataset instead (catalogue, measurements, or other) and map a catalogue's columns to ontology relations | Reusable grounded context mentions for every body window; a dataset's kind, summary, and column relations |
+| Prepare | Source files | OCR or text extraction with tables, charts and speaker notes kept as structured blocks, optional picture reading, layout normalization, stable document identity, bibliography- and table-aware chunking, and bounded document windows | Documents, pages, blocks, assets, and chunks with source offsets |
+| Document context | Bounded front matter | Identify ontology-declared focal subjects such as the paper, method, product, or organization once per document; profile a dataset instead (catalogue, measurements, or other) and map a catalogue's columns to ontology relations; write each document's catalogue card | Reusable grounded context mentions for every body window; a dataset's kind, summary, and column relations; each document's card |
 | Entity extraction | Bounded document windows | Extract grounded entity mentions in parallel, with bounded gleaning and cue-based audits | Independently mergeable mention observations |
 | Entity inventory | Every entity window for one document | Deduplicate mentions into one immutable document-wide endpoint vocabulary | A complete entity inventory shared by relation windows |
 | Relation extraction | Bounded document windows plus the document inventory and opening | Extract and ground relations, then verify them and the window's entities, in parallel | Independently mergeable relation observations with quotes, stated values, confidence, and provenance |
@@ -545,6 +545,52 @@ is available for resolution. A name ending in a parenthesized abbreviation -
 as an alias; a mark such as (TM) or a grade such as (PEG 400) stays in the name.
 Within one chunk a name names one thing: when a response types the same name
 twice there, the first type stands.
+
+## Tables, Charts, Notes, And Pictures
+
+A table or chart keeps its structure as well as its text. The parser puts each
+one on a layout block with its rows (`metadata.table`: caption, header rows,
+cells) or its plotted data (`metadata.chart`: type, title, axis titles,
+categories, series), and writes the same content into the page text in one
+rendering for every format: a table as a markdown table under its caption, a
+chart as a line naming it and its data as a table of categories against
+series. Chunking, extraction, evidence and search read that text as they read
+any other; the blocks are stored with the graph (`blocks`), so a table's rows
+stay queryable as data. A chunk boundary never falls inside a row, and a chunk
+that starts below a table's header carries the table's caption and column
+labels in its section path, which the extraction model reads as context and no
+quote can cite.
+
+With `ocr.read_figures` on, the pictures a document holds are read after
+parsing by the graph's model (or `ocr.figure_model`), which must read images:
+what a chart in a picture plots, the text of a screenshot, what a diagram
+shows. Pictures are chosen first. One in a format no image model decodes (a
+vector metafile, SVG), one smaller than `ocr.figure_min_side_px` or
+`ocr.figure_min_bytes`, one larger than `ocr.figure_max_bytes`, one on
+`ocr.figure_repeat_limit` or more pages of the document (its template: a logo,
+a footer band), and a repeat of bytes already chosen are skipped, and at most
+`ocr.figure_max_per_document` are read. Each is scaled to
+`ocr.figure_max_side_px` on its longest side and sent once; a reading is cached
+by the picture's bytes, so a logo in every file is read once. What a picture
+shows is appended to its page: a `Figure (<kind>):` line with its description
+and legible text, and any chart or table in it as chart and table blocks
+marked `source: vision`. A chart read from a picture says that its values were
+estimated from an image. A decoration adds nothing. The document's OCR
+metadata records how many pictures were read, cached, failed, and skipped and
+why. A picture that cannot be read never fails its document.
+
+## Document Cards
+
+Every document gets a catalogue card, written once from its text in the
+document-context stage (`graph.document_cards`, on by default): its title,
+what kind of document it is, what or whom it is about, the period, places and
+organizations it covers, its topics, how its information was produced, and up
+to twelve key findings that keep the document's numbers. A document that fits
+`graph.document_card_characters` is read whole; a longer one by every page's
+opening, so its later sections still reach the card. The card becomes the
+document's `summary`, one labelled line per field. A dataset keeps the summary
+its profile wrote, and a card that cannot be written leaves the document
+without one.
 
 ## Corpus Finalization
 

@@ -84,6 +84,7 @@ class RunReportRequest:
     quality_result: GraphQualityResult
     # Optional so report assembly stays usable by callers that do not meter.
     consumption: dict[str, Any] | None = None
+    embedding_model: str | None = None
     discarded_windows: list[DiscardedWindow] = field(default_factory=list)
     rejected_records: list[RejectedRecord] = field(default_factory=list)
     failed_documents: list[FailedDocument] = field(default_factory=list)
@@ -196,7 +197,10 @@ def _graph_metrics(request: RunReportRequest) -> dict[str, Any]:
             "writer": request.providers.writer,
             "cache": request.providers.cache,
         },
+        # Which model embedded the graph's records, so a reader that embeds a
+        # question knows whether its vectors are comparable with these.
         "embedding": {
+            "model": request.embedding_model,
             "dimension": request.embedding_dimension,
         },
         "filtering": {

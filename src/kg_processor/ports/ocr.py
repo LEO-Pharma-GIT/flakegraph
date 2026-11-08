@@ -8,11 +8,11 @@ configuration surface, but graph code only consumes the normalized
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
-from kg_processor.domain.documents import InputFile, ParsedDocument
+from kg_processor.domain.documents import InputFile, ParsedAsset, ParsedDocument
 
 
 # File compatibility is part of the provider contract because both preflight
@@ -174,4 +174,18 @@ class OcrProvider(Protocol):
 
     def parse(self, file: InputFile, options: OcrOptions) -> ParsedDocument:
         """Parse the source file into pages, blocks, assets, and provider metadata."""
+        ...
+
+
+@runtime_checkable
+class PictureSource(Protocol):
+    """An OCR provider that can return the bytes of a picture it reported.
+
+    Parsing records where each picture sits - an archive member, a page and
+    image name - rather than carrying the bytes through every artifact; a step
+    that reads pictures asks the provider for them while the file is at hand.
+    """
+
+    def read_picture(self, file: InputFile, asset: ParsedAsset) -> bytes:
+        """Return the picture's bytes, or raise ValueError for one it cannot locate."""
         ...

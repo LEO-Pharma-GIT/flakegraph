@@ -39,6 +39,7 @@ from kg_processor.application.discarded_windows import (
     DISCARDED_WINDOW_STAGES,
     PREVIEW_CHARACTERS,
 )
+from kg_processor.application.document_cards import DOCUMENT_CARD_STAGE
 from kg_processor.application.enrichment_batching import (
     COMMUNITY_BATCH_SIZE,
     DESCRIPTION_BATCH_SIZE,
@@ -1792,6 +1793,13 @@ class SparkGraphFinalizer:
             "shuffle_partitions": partitions,
             "entity_resolution_candidate_strategy": "typed_multikey_bounded_neighbors",
             "community_algorithm": "graphframes_label_propagation",
+            # Which model embedded the chunks, nodes and edges, as a local run
+            # records it, so a question is embedded only with a model whose
+            # vectors compare.
+            "embedding": {
+                "model": self.settings.embedding.model,
+                "dimension": self.settings.embedding.dimension,
+            },
             "community_co_mention_strategy": "bounded_chunk_anchor_star",
             "community_iterations": _COMMUNITY_ITERATIONS,
             "isolated_nodes": int(node_quality.isolated_nodes or 0),
@@ -2200,11 +2208,12 @@ class SparkGraphFinalizer:
 
         from pyspark.sql import functions as F
 
+        # A dataset's profile and a document's card both carry the summary.
         profiles = [
-            {"stage": DATASET_PROFILE_STAGE, **row.asDict()}
+            row.asDict()
             for row in extracted.select(F.explode_outer("observations.trace").alias("event"))
-            .where(F.col("event.stage") == DATASET_PROFILE_STAGE)
-            .select("event.document_id", "event.kind", "event.summary")
+            .where(F.col("event.stage").isin(DATASET_PROFILE_STAGE, DOCUMENT_CARD_STAGE))
+            .select("event.stage", "event.document_id", "event.kind", "event.summary")
             .collect()
         ]
         rows = [row.asDict(recursive=True) for row in documents.collect()]

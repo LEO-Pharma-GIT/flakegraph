@@ -50,6 +50,17 @@ class LlmCapabilities(BaseModel):
 
     supports_seed: bool = False
     max_output_tokens: int = 8192
+    # Whether the transport can carry images with a request. Whether the
+    # model behind it can read them is the deployment's to say: a text-only
+    # model refuses the call, and a caller that reads pictures records that.
+    supports_images: bool = False
+
+
+class ImageInput(BaseModel):
+    """One picture sent with a request, as base64 bytes and their media type."""
+
+    media_type: str
+    data_base64: str
 
 
 class StructuredCompletionRequest(BaseModel):
@@ -69,6 +80,8 @@ class StructuredCompletionRequest(BaseModel):
     max_tokens: int = 4096
     seed: int | None = None
     prompt_metadata: dict[str, str] = Field(default_factory=dict)
+    # Pictures the model reads alongside the user message, in order.
+    images: list[ImageInput] = Field(default_factory=list)
 
 
 class StructuredCompletionResult(BaseModel):

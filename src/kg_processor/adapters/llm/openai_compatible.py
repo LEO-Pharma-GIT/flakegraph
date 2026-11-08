@@ -7,6 +7,7 @@ import httpx
 
 from kg_processor.adapters.llm.openai_common import (
     ChatCompletion,
+    ChatMessage,
     chat_completion_from_payload,
     community_summary_result,
     complete_json_object_with_retry,
@@ -94,6 +95,7 @@ class OpenAICompatibleLlmProvider:
         return LlmCapabilities(
             supports_seed=False,
             max_output_tokens=self._max_output_tokens or DEFAULT_CHAT_MAX_TOKENS,
+            supports_images=True,
         )
 
     def complete_structured(
@@ -184,7 +186,7 @@ class OpenAICompatibleLlmProvider:
         self,
         model: str,
         timeout_seconds: int,
-        messages: list[dict[str, str]],
+        messages: list[ChatMessage],
     ) -> tuple[dict[str, object], TokenUsage]:
         return complete_json_object_with_retry(
             lambda: self._chat_content(
@@ -202,7 +204,7 @@ class OpenAICompatibleLlmProvider:
         self,
         model: str,
         timeout_seconds: int,
-        messages: list[dict[str, str]],
+        messages: list[ChatMessage],
         *,
         temperature: float = 0.0,
         max_tokens: int = DEFAULT_CHAT_MAX_TOKENS,

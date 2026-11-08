@@ -8,8 +8,8 @@ import unicodedata
 from pathlib import Path
 
 from kg_processor.application.window_errors import is_systemic_provider_error
-from kg_processor.domain.documents import InputFile, ParsedDocument
-from kg_processor.ports.ocr import NoTextReadError, OcrOptions, OcrProvider
+from kg_processor.domain.documents import InputFile, ParsedAsset, ParsedDocument
+from kg_processor.ports.ocr import NoTextReadError, OcrOptions, OcrProvider, PictureSource
 
 _UNBROKEN_LATIN_TOKEN_LENGTH = 40
 _LATIN_LETTER_RUN_RE = re.compile(r"[A-Za-z]+")
@@ -85,6 +85,23 @@ class FallbackOcrProvider:
                 failures.append(exc)
         if failures:
             raise ExceptionGroup("Failed to close fallback OCR providers", failures)
+
+    def read_picture(self, file: InputFile, asset: ParsedAsset) -> bytes:
+        """Return a picture's bytes from whichever parser can locate it.
+
+        Either parser may have produced the document, and each locates only
+        the pictures it reported, so each is asked in turn.
+        """
+
+        failures: list[str] = []
+        for provider in (self.primary, self.secondary):
+            if not isinstance(provider, PictureSource):
+                continue
+            try:
+                return provider.read_picture(file, asset)
+            except ValueError as exc:
+                failures.append(str(exc))
+        raise ValueError(f"no parser can locate picture {asset.id}: {'; '.join(failures)}")
 
     def parse(self, file: InputFile, options: OcrOptions) -> ParsedDocument:
         """Return primary output when useful, otherwise parse with the secondary.

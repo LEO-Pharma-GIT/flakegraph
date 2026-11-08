@@ -7,6 +7,7 @@ from typing import Any
 
 from kg_processor.adapters.llm.openai_common import (
     ChatCompletion,
+    ChatMessage,
     ChatResponseError,
     send_with_http_retry,
 )
@@ -57,7 +58,7 @@ class OllamaLlmProvider(OpenAICompatibleLlmProvider):
         self,
         model: str,
         timeout_seconds: int,
-        messages: list[dict[str, str]],
+        messages: list[ChatMessage],
         *,
         temperature: float = 0.0,
         max_tokens: int = 8192,
@@ -80,7 +81,7 @@ class OllamaLlmProvider(OpenAICompatibleLlmProvider):
             options["seed"] = seed
         request_payload: dict[str, object] = {
             "model": model,
-            "messages": messages,
+            "messages": [_ollama_message(message) for message in messages],
             "stream": False,
             "think": False,
             "format": _ollama_format(response_format),
@@ -153,3 +154,28 @@ def _ollama_format(response_format: dict[str, object] | None) -> str | dict[str,
             if isinstance(schema, dict):
                 return schema
     return "json"
+
+
+_DATA_URL_PREFIX = "data:"
+
+
+def _ollama_message(message: ChatMessage) -> ChatMessage:
+    """Translate OpenAI-style image parts into Ollama's native message shape.
+
+    Ollama's chat API takes a message's pictures as a list of base64 strings
+    beside its text rather than as typed content parts.
+    """
+
+    content = message.get("content")
+    if not isinstance(content, list):
+        return message
+    texts: list[str] = []
+    images: list[str] = []
+    for part in content:
+        if part.get("type") == "text":
+            texts.append(str(part.get("text", "")))
+        elif part.get("type") == "image_url":
+            url = str(part.get("image_url", {}).get("url", ""))
+            if url.startswith(_DATA_URL_PREFIX):
+                images.append(url.split(",", 1)[-1])
+    return {**message, "content": "\n\n".join(texts), "images": images}

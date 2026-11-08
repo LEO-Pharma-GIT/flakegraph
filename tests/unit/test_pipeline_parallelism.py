@@ -64,7 +64,7 @@ def test_document_context_calls_run_concurrently_and_return_in_source_order(
 ) -> None:
     """Parallelize independent prefixes without making persisted order nondeterministic."""
 
-    pipeline = _context_pipeline(tmp_path, "parallel-context")
+    pipeline = _context_pipeline(tmp_path, "parallel-context", document_cards=True)
     chunks = [_context_chunk(index) for index in range(3)]
     all_started = Event()
     state_lock = Lock()
@@ -114,7 +114,11 @@ def test_document_context_calls_run_concurrently_and_return_in_source_order(
     entities, trace = pipeline._extract_document_context_entities(chunks)
 
     assert [entity.name for entity in entities] == ["Paper 0", "Paper 1", "Paper 2"]
-    assert [event["window_index"] for event in trace] == [0, 1, 2]
+    assert [event["window_index"] for event in trace if "window_index" in event] == [0, 1, 2]
+    # Every document also gets its catalogue card, in source order.
+    assert [event["document_id"] for event in trace if event.get("stage") == "document_card"] == [
+        chunk.document_id for chunk in chunks
+    ]
 
 
 def test_all_document_context_failures_are_reported_as_degraded(
@@ -147,8 +151,14 @@ def test_all_document_context_failures_are_reported_as_degraded(
     }
 
 
-def _context_pipeline(tmp_path: Path, job_id: str) -> KgProcessorPipeline:
-    """Build a pipeline whose document-context extraction runs three windows at once."""
+def _context_pipeline(
+    tmp_path: Path, job_id: str, *, document_cards: bool = False
+) -> KgProcessorPipeline:
+    """Build a pipeline whose document-context extraction runs three windows at once.
+
+    Cards are off unless a test is about them, so the trace holds only the
+    context events the other tests examine.
+    """
 
     input_dir = tmp_path / "input"
     input_dir.mkdir()
@@ -160,7 +170,7 @@ def _context_pipeline(tmp_path: Path, job_id: str) -> KgProcessorPipeline:
             "llm": {"provider": "fake", "model": "fake"},
             "embedding": {"provider": "hash", "dimension": 16},
             "ontology": {"profile_path": "data/deep_learning_papers/ontology.yaml"},
-            "graph": {"extraction_parallelism": 3},
+            "graph": {"extraction_parallelism": 3, "document_cards": document_cards},
             "writer": {"provider": "local_artifacts", "output_path": tmp_path / "out"},
         }
     )

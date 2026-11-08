@@ -187,8 +187,11 @@ def chat_completion_from_payload(payload: Any) -> ChatCompletion:
     return ChatCompletion(content=content, usage=usage, finish_reason=finish_reason)
 
 
+# A chat message: a role and its content, which is text or, for a request
+# that carries pictures, a list of text and image parts.
+ChatMessage = dict[str, Any]
 StructuredChatSender = Callable[
-    [list[dict[str, str]], dict[str, object], int, int | None], ChatCompletion
+    [list[ChatMessage], dict[str, object], int, int | None], ChatCompletion
 ]
 JsonChatSender = Callable[[], ChatCompletion]
 HttpSender = Callable[[], httpx.Response]
@@ -380,6 +383,27 @@ def _parse_completion_payload(completion: ChatCompletion) -> dict[str, object]:
         raise ChatResponseError(str(exc), finish_reason=completion.finish_reason) from exc
 
 
+def user_content(request: StructuredCompletionRequest) -> str | list[dict[str, Any]]:
+    """A request's user message as chat content: its text, then its pictures.
+
+    A request without pictures stays a plain string, so text-only providers and
+    prefix caches see exactly the bytes they always have.
+    """
+
+    if not request.images:
+        return request.user
+    return [
+        {"type": "text", "text": request.user},
+        *(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{image.media_type};base64,{image.data_base64}"},
+            }
+            for image in request.images
+        ),
+    ]
+
+
 def complete_structured_with_retry(
     request: StructuredCompletionRequest,
     *,
@@ -408,16 +432,17 @@ def complete_structured_with_retry(
             "schema": strict_json_schema(request.json_schema),
         },
     }
-    base_messages = [
+    user_message = {"role": "user", "content": user_content(request)}
+    base_messages: list[ChatMessage] = [
         {"role": "system", "content": request.system},
-        {"role": "user", "content": request.user},
+        user_message,
     ]
-    repair_messages = [
+    repair_messages: list[ChatMessage] = [
         {
             "role": "system",
             "content": structured_output_repair_system(request.system),
         },
-        {"role": "user", "content": request.user},
+        user_message,
     ]
     payload: dict[str, object] | None = None
     first_error: ValueError | json.JSONDecodeError | None = None

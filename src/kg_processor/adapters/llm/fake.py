@@ -46,6 +46,7 @@ class FakeLlmProvider:
         return LlmCapabilities(
             supports_seed=True,
             max_output_tokens=8192,
+            supports_images=True,
         )
 
     def complete_structured(

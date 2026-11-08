@@ -55,6 +55,7 @@ class VllmLocalLlmProvider(OpenAICompatibleLlmProvider):
         return LlmCapabilities(
             supports_seed=True,
             max_output_tokens=self._max_output_tokens or _VLLM_MAX_OUTPUT_TOKENS,
+            supports_images=True,
         )
 
     def _chat_request_overrides(self) -> dict[str, object]:

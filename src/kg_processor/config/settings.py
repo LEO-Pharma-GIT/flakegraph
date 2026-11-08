@@ -301,6 +301,24 @@ class OcrSettings(_SettingsModel):
     snowflake_parse_mode: Literal["OCR", "LAYOUT"] = "OCR"
     snowflake_extract_images: bool = False
     snowflake_page_split: bool = True
+    # The pictures a document holds, read after parsing by a model that sees
+    # images: what a chart plots, the text of a screenshot, what a diagram
+    # shows. Off by default - it needs such a model and costs a call per
+    # picture. The model is the graph's own unless `figure_model` names one.
+    read_figures: bool = False
+    figure_model: str | None = None
+    # Icons, bullets and rules are smaller than this on their shorter side.
+    figure_min_side_px: int = Field(default=96, ge=1)
+    figure_min_bytes: int = Field(default=2048, ge=0)
+    figure_max_bytes: int = Field(default=20 * 1024 * 1024, gt=0)
+    # A picture on this many pages of one document is its template - a logo,
+    # a footer band - and says nothing a page needs.
+    figure_repeat_limit: int = Field(default=3, ge=2)
+    figure_max_per_document: int = Field(default=200, ge=0)
+    # Pictures are scaled down to this longest side before they are sent: a
+    # model's image tokens grow with the pixels, its reading barely does.
+    figure_max_side_px: int = Field(default=1536, ge=256)
+    figure_max_output_tokens: int = Field(default=3072, gt=0)
 
     def consumption_model(self, provider: str | None = None) -> str:
         """Return the name document parsing should be billed under.
@@ -508,6 +526,10 @@ class GraphSettings(_SettingsModel):
     # semantics merely because a transport configuration was copied.
     chunk_token_size: int = Field(default=500, gt=0)
     chunk_token_overlap: int = Field(default=60, ge=0)
+    # A catalogue card per document - what it is, covers and finds - kept as
+    # its summary, written from at most this much of its text.
+    document_cards: bool = True
+    document_card_characters: int = Field(default=48_000, gt=0)
     # A compact window keeps the structured extraction task exhaustive. Larger
     # section-sized requests reduce provider calls, but on scientific papers they
     # omit substantial entities and relations even when the response remains

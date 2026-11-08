@@ -19,6 +19,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 from urllib.parse import unquote, urlparse
 
+from kg_processor.application.document_cards import document_card_summaries
 from kg_processor.config.settings import Settings
 from kg_processor.domain.extraction import ColumnRelation
 from kg_processor.domain.graph import Chunk
@@ -353,7 +354,8 @@ def annotate_documents(
 ) -> list[dict[str, Any]]:
     """Fill each document row's summary, related files and provenance.
 
-    The summary comes from a dataset's profile. Related files are those in the
+    The summary comes from a dataset's profile, or from a document's catalogue
+    card (document_cards). Related files are those in the
     same folder that share an identifier token with the file (a batch or order
     number in both names), or every file of a small folder, so an image or a
     data file can be found from the documents beside it. Provenance says how
@@ -361,13 +363,16 @@ def annotate_documents(
     unless a revision reused, revalidated or re-extracted it.
     """
 
-    profiles = dataset_profiles(trace)
+    events = list(trace)
+    profiles = dataset_profiles(events)
+    cards = document_card_summaries(events)
     related = related_file_ids(rows)
     labels = provenance or {}
     return [
         {
             **row,
             "summary": profiles.get(str(row.get("file_id")), {}).get("summary")
+            or cards.get(str(row.get("file_id")))
             or row.get("summary"),
             "related_file_ids": related.get(str(row.get("file_id")), []),
             "provenance": labels.get(str(row.get("file_id")))

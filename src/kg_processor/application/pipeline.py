@@ -35,6 +35,11 @@ from kg_processor.application.discarded_windows import (
     discarded_windows_from_trace,
     is_discarded_window_event,
 )
+from kg_processor.application.document_cards import (
+    DocumentCard,
+    card_event,
+    document_card_request,
+)
 from kg_processor.application.document_normalization import (
     as_image_file,
     build_document_artifacts,
@@ -50,6 +55,11 @@ from kg_processor.application.extraction_windows import (
 from kg_processor.application.failed_documents import (
     failed_document_event,
     failed_documents_from_trace,
+)
+from kg_processor.application.figure_reading import (
+    FIGURE_READING_TASK,
+    FigurePolicy,
+    read_figures,
 )
 from kg_processor.application.folder_entities import (
     excluded_file_ids,
@@ -137,7 +147,7 @@ from kg_processor.domain.graph import (
     GraphNode,
     GraphWriteBatch,
 )
-from kg_processor.domain.ids import sha256_hex
+from kg_processor.domain.ids import sha256_hex, stable_id
 from kg_processor.domain.jobs import JobFileClaim, JobFileResult
 from kg_processor.domain.stages import (
     DocumentEntityInventoryShard,
@@ -151,13 +161,13 @@ from kg_processor.domain.stages import (
     RevalidationWindowShard,
     combine_extracted_shards,
 )
-from kg_processor.ports.cache import PipelineCache
+from kg_processor.ports.cache import EnrichmentCacheKey, PipelineCache
 from kg_processor.ports.embeddings import EmbeddingProvider, EmbedOptions
 from kg_processor.ports.extraction import EntityExtractor, RelationExtractor, RelationVerifier
 from kg_processor.ports.file_source import FileSource
 from kg_processor.ports.graph_writer import GraphWriter
 from kg_processor.ports.llm import LlmProvider, StructuredCompletionProvider
-from kg_processor.ports.ocr import NoTextReadError, OcrOptions, OcrProvider
+from kg_processor.ports.ocr import NoTextReadError, OcrOptions, OcrProvider, PictureSource
 
 logger = logging.getLogger(__name__)
 
@@ -462,9 +472,10 @@ class KgProcessorPipeline:
     ) -> PreparedDocumentShard:
         """Enrich one prepared shard with reusable document-context mentions.
 
-        This method is a separate durable stage so OCR workers never need an LLM
-        and every body window can share one context result. An ontology without a
-        context-enabled type takes the same path but performs no provider call.
+        This method is a separate durable stage so OCR workers need an LLM only
+        to read pictures (``ocr.read_figures``) and every body window can share
+        one context result. An ontology without a context-enabled type takes the
+        same path but performs no provider call.
         """
 
         subjects, trace = self._extract_document_context_entities(
@@ -1501,6 +1512,7 @@ class KgProcessorPipeline:
                     cache=self.settings.cache.provider,
                 ),
                 embedding_dimension=self.settings.embedding.dimension,
+                embedding_model=self.settings.embedding.model,
                 graph_settings=self.settings.graph,
                 quality_result=quality_result,
                 discarded_windows=discarded_windows,
@@ -1621,6 +1633,13 @@ class KgProcessorPipeline:
                     "pdf_renderer_command": self.settings.ocr.tesseract_pdf_renderer_command,
                     "dpi": self.settings.ocr.tesseract_dpi,
                 }
+        if self.settings.ocr.read_figures:
+            # The cached document holds what its pictures were read as, so how
+            # they were read is part of what the cache entry means.
+            provider_settings = {
+                **(provider_settings or {}),
+                "figure_reading": self._figure_settings_fingerprint(),
+            }
         cache_key = build_ocr_cache_key(
             file,
             self.settings.ocr.provider,
@@ -1631,6 +1650,8 @@ class KgProcessorPipeline:
         if cached is not None:
             return cached, cache_key.id, True
         parsed = self.ocr.parse(file, ocr_options)
+        if self.settings.ocr.read_figures:
+            parsed = self._read_figures(file, parsed)
         # Recorded after the call, so a cache hit contributes nothing: it was
         # never billed, and counting it would make re-running an unchanged
         # corpus look as expensive as the first run. The adapter that ran is
@@ -1647,6 +1668,99 @@ class KgProcessorPipeline:
         if self.cache is not None:
             self.cache.put_ocr_document(cache_key, parsed)
         return parsed, cache_key.id, False
+
+    def _figure_policy(self) -> FigurePolicy:
+        """Which pictures are read, by which model, from the OCR settings."""
+
+        ocr = self.settings.ocr
+        return FigurePolicy(
+            model=ocr.figure_model or self.settings.llm.model,
+            timeout_seconds=self.settings.llm.timeout_seconds,
+            max_output_tokens=ocr.figure_max_output_tokens,
+            min_side_px=ocr.figure_min_side_px,
+            min_bytes=ocr.figure_min_bytes,
+            max_bytes=ocr.figure_max_bytes,
+            repeat_limit=ocr.figure_repeat_limit,
+            max_per_document=ocr.figure_max_per_document,
+            max_side_px=ocr.figure_max_side_px,
+            seed=self.settings.graph.deterministic_seed,
+            parallelism=self.settings.graph.extraction_parallelism,
+        )
+
+    def _figure_settings_fingerprint(self) -> dict[str, object]:
+        """Everything that decides which pictures are read and what they read as."""
+
+        ocr = self.settings.ocr
+        return {
+            **self._figure_policy().fingerprint(),
+            "min_side_px": ocr.figure_min_side_px,
+            "min_bytes": ocr.figure_min_bytes,
+            "max_bytes": ocr.figure_max_bytes,
+            "repeat_limit": ocr.figure_repeat_limit,
+            "max_per_document": ocr.figure_max_per_document,
+        }
+
+    def _read_figures(self, file: InputFile, parsed: ParsedDocument) -> ParsedDocument:
+        """Read a parsed document's pictures and write what they show onto its pages.
+
+        The parser must be able to hand back the bytes and the model's transport
+        must carry images; otherwise the document is kept as parsed and says why.
+        Each picture's reading is cached by its bytes, so a picture repeated
+        across documents - a logo in every deck - is read once.
+        """
+
+        llm = self._graph_llm()
+        source = self.ocr
+        if not isinstance(source, PictureSource):
+            return _figures_not_read(parsed, "parser_cannot_return_pictures")
+        if not llm.capabilities().supports_images:
+            return _figures_not_read(parsed, "llm_cannot_take_images")
+        policy = self._figure_policy()
+        fingerprint = self._figure_settings_fingerprint()
+        cache = self.cache
+
+        def cache_key(digest: str) -> EnrichmentCacheKey:
+            options_hash = sha256_hex(json.dumps({**fingerprint, "sha256": digest}, sort_keys=True))
+            return EnrichmentCacheKey(
+                id=stable_id(
+                    "enrichment_cache",
+                    self.settings.job.graph_id,
+                    FIGURE_READING_TASK,
+                    self.settings.llm.provider,
+                    policy.model,
+                    options_hash,
+                ),
+                graph_id=self.settings.job.graph_id,
+                stage=FIGURE_READING_TASK,
+                llm_provider=self.settings.llm.provider,
+                model=policy.model,
+                options_hash=options_hash,
+            )
+
+        def cached_reading(digest: str) -> dict[str, object] | None:
+            return cache.get_enrichment_result(cache_key(digest)) if cache is not None else None
+
+        def store_reading(digest: str, reading: Mapping[str, object]) -> None:
+            if cache is not None:
+                cache.put_enrichment_result(cache_key(digest), dict(reading))
+
+        document, report = read_figures(
+            parsed,
+            llm=llm,
+            policy=policy,
+            load_image=lambda asset: source.read_picture(file, asset),
+            cached_reading=cached_reading,
+            store_reading=store_reading,
+        )
+        logger.info(
+            "read %d pictures of %s (%d cached, %d failed, %d skipped)",
+            report.read,
+            file.source_uri,
+            report.cached,
+            report.failed,
+            sum(report.skipped.values()),
+        )
+        return document
 
     def _parse_file_or_image(
         self,
@@ -1814,8 +1928,9 @@ class KgProcessorPipeline:
                 "reason": "ontology_has_no_document_context_type",
             }
         ]
+        cards = self._document_cards(chunks, documents or {})
         if not has_context_types and not datasets:
-            return folders, [*skipped, *folder_trace]
+            return folders, [*skipped, *folder_trace, *cards]
         windows = [
             window
             for window in build_document_context_windows(
@@ -1882,6 +1997,7 @@ class KgProcessorPipeline:
             *([] if has_context_types else skipped),
             *(event for _entities, event in ordered),
             *folder_trace,
+            *cards,
         ]
         if failures and len(failures) == len(windows):
             trace.append(
@@ -1894,6 +2010,61 @@ class KgProcessorPipeline:
                 }
             )
         return subjects, trace
+
+    def _document_cards(
+        self,
+        chunks: list[Chunk],
+        documents: Mapping[str, Mapping[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Write each document's catalogue card, as trace events its row reads.
+
+        A dataset is described by its profile and an image has no text, so
+        only documents get a card. A card that cannot be written is recorded
+        and the document goes on without one.
+        """
+
+        if not self.settings.graph.document_cards:
+            return []
+        by_document: dict[str, list[Chunk]] = {}
+        for chunk in chunks:
+            by_document.setdefault(chunk.document_id, []).append(chunk)
+        selected = [
+            (document_id, document_chunks)
+            for document_id, document_chunks in by_document.items()
+            if (documents.get(document_id) or {}).get("kind", "document") == "document"
+        ]
+        if not selected:
+            return []
+        llm = self._graph_llm()
+
+        def write(_index: int, item: tuple[str, list[Chunk]]) -> dict[str, Any]:
+            document_id, document_chunks = item
+            row = documents.get(document_id) or {}
+            request = document_card_request(
+                document_chunks,
+                file_name=file_display_name(dict(row)) if row else document_id,
+                location=str(row.get("location") or row.get("folder") or ""),
+                max_characters=self.settings.graph.document_card_characters,
+                model=self.settings.llm.model,
+                timeout_seconds=self.settings.llm.timeout_seconds,
+                seed=self.settings.graph.deterministic_seed,
+            )
+            result = llm.complete_structured(request)
+            return card_event(document_id, DocumentCard.model_validate(result.payload))
+
+        def contain(_index: int, item: tuple[str, list[Chunk]], exc: Exception) -> dict[str, Any]:
+            return {
+                "stage": "document_card_error",
+                "document_id": item[0],
+                "error": error_metadata(exc),
+            }
+
+        return ordered_map(
+            selected,
+            write,
+            parallelism=self.settings.graph.extraction_parallelism,
+            contain=contain,
+        )
 
     def _emit_document_context_progress(
         self,
@@ -2256,7 +2427,7 @@ def _cached_document_context_trace(extraction: ExtractionResult) -> list[dict[st
         for event in extraction.provider_metadata.get("trace", [])
         if isinstance(event, dict)
         and (
-            str(event.get("stage", "")).startswith("document_context")
+            str(event.get("stage", "")).startswith(("document_context", "document_card"))
             or event.get("stage") == "dataset_profile"
         )
     ]
@@ -2294,3 +2465,10 @@ def _note_discarded_windows(
                 event.get("input_records"),
                 reasons or "no reasons recorded",
             )
+
+
+def _figures_not_read(parsed: ParsedDocument, reason: str) -> ParsedDocument:
+    """Keep a document as parsed, saying why none of its pictures were read."""
+
+    metadata = {**parsed.provider_metadata, "figure_reading": {"skipped_all": reason}}
+    return parsed.model_copy(update={"provider_metadata": metadata})
