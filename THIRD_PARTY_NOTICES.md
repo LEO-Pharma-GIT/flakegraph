@@ -74,6 +74,7 @@ Direct dependencies declared in `pyproject.toml`, as resolved by `uv.lock`.
 | `networkx` | BSD-3-Clause | Graph structure, Louvain community detection, quality metrics |
 | `numpy` | BSD-3-Clause (with 0BSD, MIT, Zlib, CC0-1.0 components) | Vector arithmetic |
 | `pandas` | BSD-3-Clause | Tabular artifacts and exports |
+| `pillow` | MIT-CMU (with bundled libjpeg, libpng, zlib, FreeType, libwebp and other permissive libraries in its wheels) | Reading the pictures a document holds: dimensions, format, and downscaling before a model reads them |
 | `plotly` | MIT | Interactive graph explorer; the self-contained HTML files embed Plotly.js so they open without a network connection |
 | `prometheus-client` | Apache-2.0 (with BSD-2-Clause components) | Metrics exposed by the sidecar and shim |
 | `psycopg[binary,pool]` | LGPL-3.0 | PostgreSQL task coordination (see Copyleft Summary) |

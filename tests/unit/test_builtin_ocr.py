@@ -259,7 +259,7 @@ def test_office_member_reader_enforces_actual_streamed_output(
 def test_builtin_text_ocr_parses_docx_body_tables_headers_and_footers(tmp_path: Path) -> None:
     """Protect ordered DOCX extraction across body, tables, headers, and footers.
 
-    Table structure must remain visible as typed rows.
+    Table structure must remain visible as a table block with its rows.
     """
 
     docx = tmp_path / "sample.docx"
@@ -278,7 +278,8 @@ def test_builtin_text_ocr_parses_docx_body_tables_headers_and_footers(tmp_path: 
 
     assert "Body paragraph" in parsed.pages[0].raw_text
     assert "Alice Smith | Acme Corp" in parsed.pages[0].raw_text
-    assert any(block.kind == "table_row" for block in parsed.pages[0].blocks)
+    table = next(block for block in parsed.pages[0].blocks if block.kind == "table")
+    assert table.metadata["table"]["rows"] == [["Alice Smith", "Acme Corp"]]
     assert "Header text" in parsed.pages[0].raw_text
     assert "Footer text" in parsed.pages[0].raw_text
 
@@ -325,7 +326,8 @@ def test_builtin_text_ocr_preserves_docx_paragraph_break_and_tab_boundaries(
     parsed = BuiltinTextOcrProvider().parse(LocalFileSource(docx).list_files()[0], OcrOptions())
     text = parsed.pages[0].raw_text
 
-    assert "Revenue\n$1.2M" in text
+    # A cell's paragraphs stay apart within its table row.
+    assert "| Revenue $1.2M |" in text
     assert "Line one\nLine two" in text
     assert "Name | Value" in text
     assert "Revenue$1.2M" not in text
@@ -468,7 +470,9 @@ def test_builtin_text_ocr_parses_html(tmp_path: Path) -> None:
     assert "Alice works at Acme Corp." in parsed.pages[0].raw_text
     assert "System | Place" in parsed.pages[0].raw_text
     assert "Judo | Tokyo" in parsed.pages[0].raw_text
-    assert [block.kind for block in parsed.pages[0].blocks].count("table_row") == 2
+    table = next(block for block in parsed.pages[0].blocks if block.kind == "table")
+    assert table.metadata["table"]["header_rows"] == 1
+    assert table.metadata["table"]["rows"] == [["System", "Place"], ["Judo", "Tokyo"]]
     assert parsed.pages[0].blocks[0].kind == "heading"
     assert "ignored" not in parsed.pages[0].raw_text
 

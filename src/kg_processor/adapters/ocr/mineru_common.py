@@ -10,14 +10,18 @@ its page/block response parsing.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from pypdf import PdfReader, PdfWriter
 
-from kg_processor.domain.documents import InputFile, ParsedAsset, ParsedPage
+from kg_processor.adapters.ocr.table_structure import contains_html_table, table_from_html
+from kg_processor.domain.documents import InputFile, LayoutBlock, ParsedAsset, ParsedPage
 from kg_processor.domain.ids import stable_id
+from kg_processor.domain.tables import TableData, render_table
 from kg_processor.ports.ocr import OcrOptions, PageWindow, parse_page_range
 
 
@@ -297,3 +301,177 @@ def text_length(page: ParsedPage) -> int:
     """How much a page read, for choosing between orientations."""
 
     return len(page.raw_text.strip()) or len(page.markdown.strip())
+
+
+# MinerU writes a table as HTML, in its markdown and in its table blocks.
+_TABLE_TAG_RE = re.compile(r"<(/?)table\b[^>]*>", re.IGNORECASE)
+_CONTENT_LIST_TABLE_KINDS = frozenset({"table", "table_body"})
+
+
+@dataclass(frozen=True)
+class RenderedTable:
+    """An HTML table replaced by its rendering, and where the rendering sits.
+
+    ``html`` is the replaced markup, so a layout block that carried the same
+    markup can be pointed at the rendering.
+    """
+
+    start: int
+    end: int
+    table: TableData
+    html: str
+
+
+def render_html_tables(markdown: str) -> tuple[str, list[RenderedTable]]:
+    """Replace each outermost HTML table in ``markdown`` with its rendering.
+
+    MinerU's verbatim markdown keeps tables as HTML. Rewriting each one as
+    ``render_table`` writes it, in a single pass that records where each
+    rendering lands, keeps every new offset exact. A table the HTML reader
+    finds no cells in is left as it was.
+    """
+
+    pieces: list[str] = []
+    rendered: list[RenderedTable] = []
+    cursor = 0
+    length = 0
+    for start, end in _outer_table_spans(markdown):
+        html = markdown[start:end]
+        table = table_from_html(html, source="ocr")
+        if table is None:
+            continue
+        before = markdown[cursor:start]
+        pieces.append(before)
+        length += len(before)
+        text = render_table(table)
+        rendered.append(RenderedTable(length, length + len(text), table, html))
+        pieces.append(text)
+        length += len(text)
+        cursor = end
+    if not rendered:
+        return markdown, []
+    pieces.append(markdown[cursor:])
+    return "".join(pieces), rendered
+
+
+def _outer_table_spans(text: str) -> list[tuple[int, int]]:
+    """The spans of outermost ``<table>...</table>`` elements, nesting aware."""
+
+    spans: list[tuple[int, int]] = []
+    depth = 0
+    start = 0
+    for match in _TABLE_TAG_RE.finditer(text):
+        if not match.group(1):
+            if depth == 0:
+                start = match.start()
+            depth += 1
+        elif depth:
+            depth -= 1
+            if depth == 0:
+                spans.append((start, match.end()))
+    return spans
+
+
+def table_block_metadata(table: TableData) -> dict[str, Any]:
+    """The structured table a table block carries in its metadata."""
+
+    return {"table": table.model_dump(mode="json")}
+
+
+def content_list_table(raw: dict[str, Any]) -> tuple[TableData, list[str]] | None:
+    """A content-list table record as a table and its footnotes, if its body is HTML.
+
+    The caption becomes the table's caption; footnotes are returned apart,
+    since they are text under the table rather than part of it.
+    """
+
+    if str(raw.get("type") or "").lower() not in _CONTENT_LIST_TABLE_KINDS:
+        return None
+    body = raw.get("table_body")
+    if not isinstance(body, str) or not contains_html_table(body):
+        return None
+    table = table_from_html(body, source="ocr")
+    if table is None:
+        return None
+    caption = " ".join(_text_values(raw.get("table_caption")))
+    if caption:
+        table = table.model_copy(update={"caption": caption})
+    return table, _text_values(raw.get("table_footnote"))
+
+
+def html_block_table(kind: str, raw: dict[str, Any], text: str) -> TableData | None:
+    """The table a MinerU layout block of a table kind carries as HTML, if any."""
+
+    if kind.lower() not in _CONTENT_LIST_TABLE_KINDS:
+        return None
+    for candidate in (raw.get("table_body"), raw.get("html"), text):
+        if isinstance(candidate, str) and contains_html_table(candidate):
+            return table_from_html(candidate, source="ocr")
+    return None
+
+
+def with_rendered_tables(page: ParsedPage, *, file_id: str, id_prefix: str) -> ParsedPage:
+    """A verbatim-markdown page with its HTML tables rendered as table blocks.
+
+    The page text is rewritten by ``render_html_tables``. A block that carried
+    the markup of a rendered table takes the rendering as its text, with its
+    offsets and the structured table. A block spanning the whole page text
+    follows the rewrite; other blocks are left as they were. A table no
+    block named gets a table block of its own.
+    """
+
+    markdown, rendered = render_html_tables(page.markdown)
+    if not rendered:
+        return page
+    by_html = {table.html.strip(): table for table in rendered}
+    claimed: set[int] = set()
+    blocks: list[LayoutBlock] = []
+    for block in page.blocks:
+        match = by_html.get(block.text.strip()) if block.text.strip() else None
+        if match is not None and match.start not in claimed:
+            claimed.add(match.start)
+            blocks.append(
+                block.model_copy(
+                    update={
+                        "kind": "table",
+                        "text": markdown[match.start : match.end],
+                        "metadata": {
+                            **block.metadata,
+                            **table_block_metadata(match.table),
+                            "start_offset": match.start,
+                            "end_offset": match.end,
+                        },
+                    }
+                )
+            )
+        elif block.text == page.markdown:
+            blocks.append(block.model_copy(update={"text": markdown}))
+        else:
+            blocks.append(block)
+    for index, table in enumerate(rendered):
+        if table.start in claimed:
+            continue
+        text = markdown[table.start : table.end]
+        blocks.append(
+            LayoutBlock(
+                id=stable_id(id_prefix, file_id, page.page_number, "table", index, text[:256]),
+                page_number=page.page_number,
+                kind="table",
+                text=text,
+                metadata={
+                    **table_block_metadata(table.table),
+                    "start_offset": table.start,
+                    "end_offset": table.end,
+                },
+            )
+        )
+    raw_text = markdown if page.raw_text == page.markdown else page.raw_text
+    return page.model_copy(update={"markdown": markdown, "raw_text": raw_text, "blocks": blocks})
+
+
+def _text_values(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []

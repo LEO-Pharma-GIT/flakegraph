@@ -12,11 +12,15 @@ from pathlib import Path
 from typing import Any
 
 from kg_processor.adapters.ocr.mineru_common import (
+    content_list_table,
     first_int,
     first_string,
+    html_block_table,
     mineru_assets_from_payloads,
     resolve_page_window,
     shape_description,
+    table_block_metadata,
+    with_rendered_tables,
 )
 from kg_processor.domain.documents import (
     InputFile,
@@ -26,9 +30,13 @@ from kg_processor.domain.documents import (
     ParsedPage,
 )
 from kg_processor.domain.ids import stable_id
+from kg_processor.domain.tables import render_table
 from kg_processor.ports.ocr import NoTextReadError, OcrOptions
 
 _BBOX_COORDS = 4
+# Content-list blocks are joined into page text with a blank line between them.
+_BLOCK_SEPARATOR = "\n\n"
+_CONTENT_TEXT_FIELDS = frozenset({"text", "content", "list_items", "bbox"})
 _SECRET_ENVIRONMENT_PREFIXES = (
     "AWS_",
     "AZURE_",
@@ -122,7 +130,11 @@ class MineruInternalOcrProvider:
             pages, assets = _document_parts_from_mineru_json(file, page_json)
         elif markdown_files:
             text = markdown_files[0].read_text(encoding="utf-8")
-            pages = [_page(file, 1, text)]
+            pages = [
+                with_rendered_tables(
+                    _page(file, 1, text), file_id=file.id, id_prefix="mineru_internal_block"
+                )
+            ]
             assets = []
         elif json_files:
             pages, assets = _document_parts_from_mineru_json(file, json_files[0])
@@ -190,15 +202,14 @@ def _pages_from_mineru_payload(file: InputFile, payload: object) -> list[ParsedP
             page_number = page_idx + 1 if page_idx is not None else index
         text = first_string(raw, ["markdown", "md", "text", "raw_text", "content"])
         blocks = _blocks_from_raw(file, page_number, raw.get("blocks"))
-        pages.append(
-            ParsedPage(
-                page_number=page_number,
-                markdown=text,
-                raw_text=text,
-                blocks=blocks or [_block(file, page_number, text)],
-                detected_language=first_string(raw, ["language", "detected_language"]) or None,
-            )
+        page = ParsedPage(
+            page_number=page_number,
+            markdown=text,
+            raw_text=text,
+            blocks=blocks or [_block(file, page_number, text)],
+            detected_language=first_string(raw, ["language", "detected_language"]) or None,
         )
+        pages.append(with_rendered_tables(page, file_id=file.id, id_prefix="mineru_internal_block"))
     return pages
 
 
@@ -225,45 +236,49 @@ def _pages_from_content_list(file: InputFile, items: list[object]) -> list[Parse
         page_number = page_index + 1
         blocks: list[LayoutBlock] = []
         text_parts: list[str] = []
+        cursor = 0
         for block_index, raw in enumerate(raw_blocks):
-            text = _content_list_text(raw)
-            if not text:
-                continue
-            text_parts.append(text)
-            bbox = raw.get("bbox")
-            parsed_bbox = (
-                tuple(float(value) for value in bbox)
-                if isinstance(bbox, list) and len(bbox) == _BBOX_COORDS
-                else None
-            )
-            blocks.append(
-                LayoutBlock(
-                    id=stable_id(
-                        "block",
-                        file.id,
-                        page_number,
-                        block_index,
-                        str(raw.get("type", "text")),
-                        text[:128],
-                    ),
-                    page_number=page_number,
-                    kind=str(raw.get("type") or "text"),
-                    text=text,
-                    bbox=parsed_bbox,
-                    metadata={
-                        key: value
-                        for key, value in raw.items()
-                        if key
-                        not in {
-                            "text",
-                            "content",
-                            "list_items",
-                            "bbox",
-                        }
-                    },
+            for kind, text, extra in _content_list_pieces(raw):
+                if not text:
+                    continue
+                if text_parts:
+                    cursor += len(_BLOCK_SEPARATOR)
+                start = cursor
+                cursor += len(text)
+                text_parts.append(text)
+                bbox = raw.get("bbox")
+                parsed_bbox = (
+                    tuple(float(value) for value in bbox)
+                    if isinstance(bbox, list) and len(bbox) == _BBOX_COORDS
+                    else None
                 )
-            )
-        page_text = "\n\n".join(text_parts)
+                blocks.append(
+                    LayoutBlock(
+                        id=stable_id(
+                            "block",
+                            file.id,
+                            page_number,
+                            block_index,
+                            kind,
+                            text[:128],
+                        ),
+                        page_number=page_number,
+                        kind=kind,
+                        text=text,
+                        bbox=parsed_bbox,
+                        metadata={
+                            **{
+                                key: value
+                                for key, value in raw.items()
+                                if key not in _CONTENT_TEXT_FIELDS
+                            },
+                            **extra,
+                            "start_offset": start,
+                            "end_offset": cursor,
+                        },
+                    )
+                )
+        page_text = _BLOCK_SEPARATOR.join(text_parts)
         pages.append(
             ParsedPage(
                 page_number=page_number,
@@ -273,6 +288,28 @@ def _pages_from_content_list(file: InputFile, items: list[object]) -> list[Parse
             )
         )
     return pages
+
+
+def _content_list_pieces(raw: dict[str, Any]) -> list[tuple[str, str, dict[str, Any]]]:
+    """The blocks one content-list record becomes: kind, text, extra metadata.
+
+    A table whose body is HTML is written as ``render_table`` writes it,
+    caption included, with the structured table on its block; its
+    footnotes follow as a block of their own. Every other record is one
+    block of its textual fields, as MinerU states them.
+    """
+
+    kind = str(raw.get("type") or "text")
+    table = content_list_table(raw)
+    if table is None:
+        return [(kind, _content_list_text(raw), {})]
+    data, footnotes = table
+    pieces: list[tuple[str, str, dict[str, Any]]] = [
+        (kind, render_table(data), table_block_metadata(data))
+    ]
+    if footnotes:
+        pieces.append(("table_footnote", "\n".join(footnotes), {}))
+    return pieces
 
 
 def _content_list_text(raw: dict[str, Any]) -> str:
@@ -337,14 +374,21 @@ def _blocks_from_raw(file: InputFile, page_number: int, raw_blocks: Any) -> list
             if isinstance(bbox, list) and len(bbox) == _BBOX_COORDS
             else None
         )
+        kind = str(raw.get("type") or raw.get("kind") or "text")
+        metadata = {k: v for k, v in raw.items() if k not in {"text", "content", "markdown"}}
+        # A table block whose markup the page text does not repeat keeps its
+        # text as MinerU wrote it; the parsed table rides along as data.
+        table = html_block_table(kind, raw, text)
+        if table is not None:
+            metadata.update(table_block_metadata(table))
         blocks.append(
             LayoutBlock(
                 id=stable_id("block", file.id, page_number, idx, text[:128]),
                 page_number=page_number,
-                kind=str(raw.get("type") or raw.get("kind") or "text"),
+                kind=kind,
                 text=text,
                 bbox=parsed_bbox,
-                metadata={k: v for k, v in raw.items() if k not in {"text", "content", "markdown"}},
+                metadata=metadata,
             )
         )
     return blocks

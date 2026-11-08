@@ -1,23 +1,33 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Simple text/PDF/Office/HTML parser used for deterministic smoke fixtures."""
+"""Local parser for text-native documents: text, PDF, Office and HTML.
+
+It reads what a file states without a model or OCR. Office files keep their
+structure: slides read title first and then in reading order, tables become
+table blocks (``domain.tables``), charts are read from the values their parts
+cache (``office_charts``), speaker notes follow their slide, and pictures are
+listed as assets whose bytes ``read_image_bytes`` returns on request.
+"""
 
 from __future__ import annotations
 
 import codecs
 import importlib
+import math
 import multiprocessing
 import re
 import subprocess
 import sys
 import zipfile
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import suppress
+from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from itertools import pairwise
 from multiprocessing.connection import Connection
 from pathlib import Path, PurePosixPath
 from time import monotonic
+from typing import Any
 from xml.etree.ElementTree import Element
 
 import pypdfium2 as pdfium  # type: ignore[import-untyped]
@@ -25,8 +35,28 @@ from defusedxml import ElementTree
 from pypdf import PdfReader
 from pypdf.errors import LimitReachedError
 
-from kg_processor.domain.documents import InputFile, LayoutBlock, ParsedDocument, ParsedPage
+from kg_processor.adapters.ocr.office_charts import EmptyChartError, read_chart
+from kg_processor.adapters.ocr.office_images import (
+    content_type_for_member,
+    image_facts,
+    pdf_image_bytes,
+    pdf_page_images,
+)
+from kg_processor.adapters.ocr.page_builder import BLOCK_BREAK, LINE_BREAK, PageBuilder
+from kg_processor.adapters.ocr.table_structure import (
+    GridCell,
+    HtmlTableCollector,
+    build_rows,
+    table_from_rows,
+)
+from kg_processor.domain.documents import (
+    InputFile,
+    ParsedAsset,
+    ParsedDocument,
+    ParsedPage,
+)
 from kg_processor.domain.ids import stable_id
+from kg_processor.domain.tables import ChartData, TableData, render_chart, render_table
 from kg_processor.ports.ocr import NoTextReadError, OcrOptions, parse_page_range
 
 MAX_OFFICE_ENTRY_BYTES = 25 * 1024 * 1024
@@ -78,24 +108,30 @@ class BuiltinTextOcrProvider:
     """
 
     def parse(self, file: InputFile, options: OcrOptions) -> ParsedDocument:
-        """Parse text-native formats into deterministic one-block pages."""
+        """Parse text-native formats into pages of offset-bearing blocks.
+
+        Office files keep their tables, charts, speaker notes and pictures as
+        structured blocks and assets (see ``_DocumentParts``); how many of
+        each were found is recorded in the provider metadata.
+        """
 
         suffix = file.path.suffix.lower()
         layout: dict[str, float] = {}
+        parts = _DocumentParts(file)
         if suffix in {".txt", ".md", ".markdown"}:
             pages = [_page_from_text(file, 1, _read_text_document(file.path))]
         elif suffix == ".pdf":
-            pages, interleaved_ratio = self._parse_pdf(file.path, file)
+            pages, interleaved_ratio = self._parse_pdf(file.path, file, parts)
             if interleaved_ratio is not None:
                 layout["interleaved_column_page_ratio"] = interleaved_ratio
         elif suffix == ".docx":
-            pages = self._parse_docx(file.path, file)
+            pages = self._parse_docx(file.path, file, parts)
         elif suffix in {".html", ".htm"}:
-            pages = self._parse_html(file.path, file)
+            pages = self._parse_html(file.path, file, parts)
         elif suffix == ".pptx":
-            pages = self._parse_pptx(file.path, file)
+            pages = self._parse_pptx(file.path, file, parts)
         elif suffix == ".xlsx":
-            pages = self._parse_xlsx(file.path, file)
+            pages = self._parse_xlsx(file.path, file, parts)
         else:
             raise ValueError(f"builtin_text OCR does not support {suffix}")
         pages = _select_pages(pages, options.page_range)
@@ -109,21 +145,37 @@ class BuiltinTextOcrProvider:
             page.raw_text.strip() or page.markdown.strip() for page in pages
         ):
             raise NoTextReadError(f"builtin_text extracted no text from {file.source_uri}")
+        kept_pages = {page.page_number for page in pages}
         return ParsedDocument(
             file_id=file.id,
             checksum=file.checksum,
             source_uri=file.source_uri,
             mime_type=file.mime_type,
             pages=pages,
+            assets=[asset for asset in parts.assets if asset.page_number in kept_pages],
             provider_metadata={
                 "provider": "builtin_text",
                 "language": options.language,
                 "page_range": options.page_range,
                 **layout,
+                **parts.counts(),
             },
         )
 
-    def _parse_pdf(self, path: Path, file: InputFile) -> tuple[list[ParsedPage], float | None]:
+    def read_picture(self, file: InputFile, asset: ParsedAsset) -> bytes:
+        """Return the bytes of a picture this parser reported for ``file``.
+
+        Raises ``ValueError`` for an asset another parser produced or one
+        that cannot be found in the file, and keeps the parser's size limits.
+        """
+
+        if asset.metadata.get("parser") != _ASSET_PARSER:
+            raise ValueError(f"asset {asset.id} was not reported by builtin_text")
+        return read_image_bytes(file.path, asset)
+
+    def _parse_pdf(
+        self, path: Path, file: InputFile, parts: _DocumentParts
+    ) -> tuple[list[ParsedPage], float | None]:
         """Extract a PDF with pypdf, falling back to PDFium for unusual fonts.
 
         Both engines preserve one output page per physical PDF page. PDFium is
@@ -134,6 +186,10 @@ class BuiltinTextOcrProvider:
         The second value is the share of measurable pages whose text layer runs
         across two columns line by line (see ``_interleaved_columns``), or None
         when PDFium read the file and no positions were available.
+
+        Embedded pictures are listed on the pypdf path only, as image assets
+        with a figure block that has no text: a PDF picture has no alt text
+        the parser could write.
         """
 
         if path.stat().st_size > MAX_PDF_SOURCE_BYTES:
@@ -161,11 +217,14 @@ class BuiltinTextOcrProvider:
                     raise ValueError(
                         f"PDF text exceeds the {MAX_PDFIUM_FALLBACK_TEXT_BYTES} byte limit"
                     )
-                pages.append(_page_from_text(file, index, text))
+                segments: list[_Segment] = [_Segment("lines", text)]
+                segments.extend(_pdf_picture_segments(parts, page, index))
+                pages.append(_page_from_segments(file, index, segments))
             return pages, (interleaved_pages / measured_pages if measured_pages else 0.0)
         except (_EncryptedPdfError, LimitReachedError):
             raise
         except Exception as primary_error:
+            parts.discard_assets()
             try:
                 return self._parse_pdf_with_pdfium(path, file), None
             except Exception as fallback_error:
@@ -181,41 +240,68 @@ class BuiltinTextOcrProvider:
         page_text = _run_guarded_pdfium_fallback(path)
         return [_page_from_text(file, index, text) for index, text in enumerate(page_text, start=1)]
 
-    def _parse_docx(self, path: Path, file: InputFile) -> list[ParsedPage]:
+    def _parse_docx(self, path: Path, file: InputFile, parts: _DocumentParts) -> list[ParsedPage]:
+        """Read a Word document as one page: body, then headers and footers.
+
+        Tables become table blocks, and charts and pictures drawn in a
+        paragraph follow that paragraph's text.
+        """
+
         with zipfile.ZipFile(path) as archive:
             member_names = _docx_text_member_names(archive)
             _validate_office_archive(path, archive, member_names)
-            text = "\n".join(
-                part
-                for name in member_names
-                for part in _docx_xml_text(_read_zip_member(path, archive, name))
-            )
-        return [_page_from_text(file, 1, text)]
+            package = _OfficePackage(path, archive, parts, counted=member_names)
+            segments: list[_Segment] = []
+            for name in member_names:
+                root = ElementTree.fromstring(_read_zip_member(path, archive, name))
+                body = next((child for child in root if _local_name(child.tag) == "body"), root)
+                context = _DocxContext(package, name, page_number=1)
+                segments.extend(_docx_block_segments(body, context))
+        return [_page_from_segments(file, 1, segments)]
 
-    def _parse_html(self, path: Path, file: InputFile) -> list[ParsedPage]:
+    def _parse_html(self, path: Path, file: InputFile, parts: _DocumentParts) -> list[ParsedPage]:
+        """Read an HTML page's visible text, with its tables as table blocks."""
+
         parser = _VisibleTextHtmlParser()
         parser.feed(_read_text_document(path, sniff_html_charset=True))
-        return [_page_from_text(file, 1, parser.text())]
+        parser.close()
+        segments = parser.segments()
+        parts.tables += sum(segment.kind == "table" for segment in segments)
+        return [_page_from_segments(file, 1, segments)]
 
-    def _parse_pptx(self, path: Path, file: InputFile) -> list[ParsedPage]:
+    def _parse_pptx(self, path: Path, file: InputFile, parts: _DocumentParts) -> list[ParsedPage]:
+        """Read each slide in presentation order as one page.
+
+        See ``_pptx_slide_segments`` for what a slide page holds and in what
+        order.
+        """
+
         pages: list[ParsedPage] = []
         with zipfile.ZipFile(path) as archive:
             slide_names, control_names = _pptx_slide_member_names(path, archive)
             _validate_office_archive(path, archive, [*control_names, *slide_names])
+            package = _OfficePackage(path, archive, parts, counted=[*control_names, *slide_names])
             for index, name in enumerate(slide_names, start=1):
-                text = _pptx_slide_text(_read_zip_member(path, archive, name))
-                pages.append(_page_from_text(file, index, text))
+                root = ElementTree.fromstring(_read_zip_member(path, archive, name))
+                segments = _pptx_slide_segments(package, name, root, index)
+                pages.append(_page_from_segments(file, index, segments))
         if not pages:
             raise ValueError(f"PPTX file contains no slides: {path}")
         return pages
 
-    def _parse_xlsx(self, path: Path, file: InputFile) -> list[ParsedPage]:
+    def _parse_xlsx(self, path: Path, file: InputFile, parts: _DocumentParts) -> list[ParsedPage]:
+        """Read each worksheet as one page: its cells, then its charts.
+
+        The cell text is exactly what ``_xlsx_sheet_text`` writes; charts and
+        pictures the sheet's drawing holds follow it as blocks of their own.
+        """
+
         pages: list[ParsedPage] = []
         with zipfile.ZipFile(path) as archive:
             sheet_names, shared_string_names, control_names = _xlsx_member_names(path, archive)
-            _validate_office_archive(
-                path, archive, [*control_names, *shared_string_names, *sheet_names]
-            )
+            readable = [*control_names, *shared_string_names, *sheet_names]
+            _validate_office_archive(path, archive, readable)
+            package = _OfficePackage(path, archive, parts, counted=readable)
             shared_strings = _xlsx_shared_strings(
                 path,
                 archive,
@@ -223,7 +309,8 @@ class BuiltinTextOcrProvider:
             )
             for index, name in enumerate(sheet_names, start=1):
                 text = _xlsx_sheet_text(_read_zip_member(path, archive, name), shared_strings)
-                pages.append(_page_from_text(file, index, text))
+                segments = [_Segment("lines", text), *_xlsx_drawing_segments(package, name, index)]
+                pages.append(_page_from_segments(file, index, segments))
         if not pages:
             raise ValueError(f"XLSX file contains no worksheets: {path}")
         return pages
@@ -416,38 +503,94 @@ def _page_from_text(file: InputFile, page_number: int, text: str) -> ParsedPage:
     the pipeline.
     """
 
-    text = text.lstrip("\ufeff")
-    rendered_lines: list[str] = []
-    block_specs: list[tuple[str, str, dict[str, object]]] = []
-    for raw_line in text.splitlines():
+    return _page_from_segments(file, page_number, [_Segment("lines", text)])
+
+
+@dataclass
+class _Segment:
+    """One piece of a page before it is written: text lines or a structure.
+
+    ``lines`` is running text, one block per non-blank line; ``table``,
+    ``chart`` and ``notes`` are blocks set off by a blank line; ``figure``
+    is a picture, written as "Figure: <alt text>" only when it has alt text.
+    """
+
+    kind: str
+    text: str = ""
+    table: TableData | None = None
+    chart: ChartData | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+# Segments that sit on the page as blocks of their own, set off by blank lines.
+_STRUCTURED_SEGMENTS = frozenset({"table", "chart", "notes"})
+_FIGURE_PREFIX = "Figure: "
+_NOTES_HEADING = "Speaker notes:"
+
+
+def _page_from_segments(file: InputFile, page_number: int, segments: list[_Segment]) -> ParsedPage:
+    """Write a page's segments in order, each block over its exact span.
+
+    Every block's ``start_offset``/``end_offset`` is where the page builder
+    wrote its text, so ``page.markdown[start:end] == block.text`` always.
+    """
+
+    builder = PageBuilder(file.id, page_number)
+    previous_structured = False
+    for segment in segments:
+        structured = segment.kind in _STRUCTURED_SEGMENTS
+        separator = BLOCK_BREAK if structured or previous_structured else LINE_BREAK
+        if segment.kind == "lines":
+            written = _write_lines(builder, segment.text, separator)
+        elif segment.kind == "figure":
+            written = _write_figure(builder, segment, separator)
+        else:
+            block = _structured_block(segment)
+            written = block is not None and (
+                builder.add(block[0], block[1], block[2], separator=separator) is not None
+            )
+        if written:
+            previous_structured = structured
+    return builder.page()
+
+
+def _write_lines(builder: PageBuilder, text: str, separator: str) -> bool:
+    """Write running text one classified block per non-blank line."""
+
+    written = False
+    for raw_line in text.lstrip("\ufeff").splitlines():
         line = raw_line.strip()
         if not line:
             continue
         kind, rendered, metadata = _classify_text_line(line)
-        rendered_lines.append(rendered)
-        block_specs.append((kind, rendered, metadata))
-    rendered_text = "\n".join(rendered_lines)
-    blocks: list[LayoutBlock] = []
-    cursor = 0
-    for index, (kind, rendered, metadata) in enumerate(block_specs):
-        start = rendered_text.find(rendered, cursor)
-        end = start + len(rendered)
-        cursor = end
-        blocks.append(
-            LayoutBlock(
-                id=stable_id("block", file.id, page_number, index, kind, rendered[:256]),
-                page_number=page_number,
-                kind=kind,
-                text=rendered,
-                metadata={**metadata, "start_offset": start, "end_offset": end},
-            )
-        )
-    return ParsedPage(
-        page_number=page_number,
-        markdown=rendered_text,
-        raw_text=rendered_text,
-        blocks=blocks,
-    )
+        builder.add(kind, rendered, metadata, separator=LINE_BREAK if written else separator)
+        written = True
+    return written
+
+
+def _write_figure(builder: PageBuilder, segment: _Segment, separator: str) -> bool:
+    """Write "Figure: <alt text>", or mark where a picture without alt text sits."""
+
+    alt = " ".join(segment.text.split())
+    if not alt:
+        builder.mark("figure", segment.metadata)
+        return False
+    builder.add("figure", alt, segment.metadata, separator=separator, prefix=_FIGURE_PREFIX)
+    return True
+
+
+def _structured_block(segment: _Segment) -> tuple[str, str, dict[str, Any]] | None:
+    """The kind, rendered text and metadata of a table, chart or notes segment."""
+
+    if segment.kind == "table" and segment.table is not None:
+        table = segment.table
+        return "table", render_table(table), {"table": table.model_dump(mode="json")}
+    if segment.kind == "chart" and segment.chart is not None:
+        chart = segment.chart
+        return "chart", render_chart(chart), {"chart": chart.model_dump(mode="json")}
+    if segment.kind == "notes":
+        return "notes", segment.text, dict(segment.metadata)
+    return None
 
 
 def _classify_text_line(line: str) -> tuple[str, str, dict[str, object]]:
@@ -468,6 +611,1202 @@ def _classify_text_line(line: str) -> tuple[str, str, dict[str, object]]:
     if re.match(r"^(?:[-*+] |\d+[.)] )", line):
         return "list_item", line, {}
     return "paragraph", re.sub(r"\s+", " ", line), {}
+
+
+# Pictures are reported as assets that name this parser, so ``read_picture``
+# can refuse an asset another parser produced.
+_ASSET_PARSER = "builtin_text"
+# Reading every picture in a package to hash it decompresses this much at most;
+# pictures past it are listed without a hash or pixel size.
+MAX_OFFICE_MEDIA_TOTAL_BYTES = 1024 * 1024 * 1024
+_RELATIONSHIP_TYPE_SUFFIXES = {
+    "chart": "/chart",
+    "image": "/image",
+    "notes": "/notesSlide",
+    "layout": "/slideLayout",
+    "master": "/slideMaster",
+    "drawing": "/drawing",
+    "diagram_data": "/diagramData",
+}
+
+
+class _OfficeBudgetError(ValueError):
+    """The aggregate XML limit was reached: the document fails, not one part."""
+
+
+class _DocumentParts:
+    """What one parse found besides text: assets, and counts of structures.
+
+    The counts land in the provider metadata, so a run report can say how
+    many charts a corpus held and how many of them could not be read.
+    """
+
+    def __init__(self, file: InputFile) -> None:
+        """Start an empty record for ``file``."""
+
+        self.file = file
+        self.assets: list[ParsedAsset] = []
+        self.charts = 0
+        self.charts_unreadable = 0
+        self.charts_empty = 0
+        self.tables = 0
+        self.notes_pages = 0
+        self.images_unreadable = 0
+        self.parts_unreadable = 0
+
+    def add_asset(self, page_number: int, metadata: dict[str, Any]) -> ParsedAsset:
+        """Record one picture on ``page_number`` and return its asset."""
+
+        asset = ParsedAsset(
+            id=stable_id(
+                "asset",
+                self.file.id,
+                page_number,
+                len(self.assets),
+                str(metadata.get("member", "")),
+            ),
+            kind="image",
+            page_number=page_number,
+            metadata={"parser": _ASSET_PARSER, **metadata},
+        )
+        self.assets.append(asset)
+        return asset
+
+    def discard_assets(self) -> None:
+        """Forget assets from a parse that is being redone another way."""
+
+        self.assets.clear()
+        self.images_unreadable = 0
+
+    def counts(self) -> dict[str, int]:
+        """The non-zero counts, for the provider metadata."""
+
+        counts = {
+            "charts": self.charts,
+            "charts_unreadable": self.charts_unreadable,
+            "charts_empty": self.charts_empty,
+            "tables": self.tables,
+            "notes_pages": self.notes_pages,
+            "images": len(self.assets),
+            "images_unreadable": self.images_unreadable,
+            "parts_unreadable": self.parts_unreadable,
+        }
+        return {key: value for key, value in counts.items() if value}
+
+
+class _OfficePackage:
+    """Bounded access to the parts of one open Office package.
+
+    Every XML part read through it counts toward ``MAX_OFFICE_TOTAL_BYTES``
+    together with the parts the caller already validated, and every part
+    keeps the per-entry limit, so following relationships to charts, notes
+    and layouts cannot read past the limits the parser always applied.
+    Picture bytes have a budget of their own (``MAX_OFFICE_MEDIA_TOTAL_BYTES``).
+    """
+
+    def __init__(
+        self,
+        path: Path,
+        archive: zipfile.ZipFile,
+        parts: _DocumentParts,
+        *,
+        counted: list[str],
+    ) -> None:
+        """Wrap ``archive``; ``counted`` names parts already in the total."""
+
+        self.path = path
+        self.archive = archive
+        self.parts = parts
+        self.names = set(archive.namelist())
+        self._counted: set[str] = set()
+        self._total = 0
+        for name in counted:
+            self._count(name)
+        self._relationships: dict[str, dict[str, tuple[str, str]]] = {}
+        self._roots: dict[str, Element | None] = {}
+        self._media: dict[str, Any] = {}
+        self._media_total = 0
+        self._content_types: dict[str, str] | None = None
+
+    def xml(self, name: str) -> Element | None:
+        """Parse an auxiliary part once; None if missing or unreadable.
+
+        A chart, notes page or layout that cannot be read costs that part,
+        not the document. The aggregate limit still fails the document.
+        """
+
+        if name in self._roots:
+            return self._roots[name]
+        root: Element | None = None
+        if name in self.names:
+            try:
+                self._count(name)
+                root = ElementTree.fromstring(_read_zip_member(self.path, self.archive, name))
+            except _OfficeBudgetError:
+                raise
+            except Exception:  # noqa: BLE001 - one unreadable part must not fail the document
+                self.parts.parts_unreadable += 1
+                root = None
+        self._roots[name] = root
+        return root
+
+    def read_xml_bytes(self, name: str) -> bytes:
+        """Read an auxiliary XML part's bytes under the same limits as ``xml``."""
+
+        self._count(name)
+        return _read_zip_member(self.path, self.archive, name)
+
+    def relationships(self, source: str) -> dict[str, tuple[str, str]]:
+        """A part's relationships by id, empty when it has none or they are unreadable."""
+
+        if source not in self._relationships:
+            rels = _relationships_member(source)
+            found: dict[str, tuple[str, str]] = {}
+            if rels in self.names:
+                try:
+                    self._count(rels)
+                    found = _office_relationships(self.path, self.archive, source, rels)
+                except _OfficeBudgetError:
+                    raise
+                except Exception:  # noqa: BLE001 - unreadable links lose only what they link
+                    self.parts.parts_unreadable += 1
+            self._relationships[source] = found
+        return self._relationships[source]
+
+    def target(self, source: str, relationship_id: str | None, kind: str) -> str | None:
+        """The part ``relationship_id`` of ``source`` names, if it is of ``kind``."""
+
+        if not relationship_id:
+            return None
+        found = self.relationships(source).get(relationship_id)
+        if found is None or found[0] not in self.names:
+            return None
+        member, relationship_type = found
+        return member if relationship_type.endswith(_RELATIONSHIP_TYPE_SUFFIXES[kind]) else None
+
+    def first_target(self, source: str, kind: str) -> str | None:
+        """The first part of ``kind`` that ``source`` links to."""
+
+        suffix = _RELATIONSHIP_TYPE_SUFFIXES[kind]
+        return next(
+            (
+                member
+                for member, relationship_type in self.relationships(source).values()
+                if relationship_type.endswith(suffix) and member in self.names
+            ),
+            None,
+        )
+
+    def chart(self, member: str | None) -> ChartData | None:
+        """Read one chart part, counting it as read or unreadable."""
+
+        if member is None:
+            self.parts.charts_unreadable += 1
+            return None
+        try:
+            chart = read_chart(self.read_xml_bytes(member))
+        except _OfficeBudgetError:
+            raise
+        except EmptyChartError:
+            # An empty chart is read correctly; it just plots nothing.
+            self.parts.charts_empty += 1
+            return None
+        except Exception:  # noqa: BLE001 - an unreadable chart must not fail the document
+            self.parts.charts_unreadable += 1
+            return None
+        self.parts.charts += 1
+        return chart
+
+    def picture(
+        self,
+        page_number: int,
+        member: str | None,
+        *,
+        alt_text: str,
+        extra: dict[str, Any],
+    ) -> _Segment | None:
+        """Record a picture part as an asset; its figure segment, or None.
+
+        The picture is read once per package to hash it and read its pixel
+        size from its header. One past the entry limit or the media budget is
+        listed with its size alone.
+        """
+
+        if member is None:
+            return None
+        metadata: dict[str, Any] = {
+            "member": member,
+            "content_type": self._content_type(member),
+            **self._media_facts(member),
+            "alt_text": alt_text or None,
+            **extra,
+        }
+        asset = self.parts.add_asset(page_number, metadata)
+        return _Segment("figure", alt_text, metadata={"asset_id": asset.id})
+
+    def _media_facts(self, member: str) -> dict[str, Any]:
+        if member in self._media:
+            return dict(self._media[member])
+        info = self.archive.getinfo(member)
+        facts: dict[str, Any] = {
+            "sha256": None,
+            "size_bytes": info.file_size,
+            "width_px": None,
+            "height_px": None,
+        }
+        if (
+            info.file_size <= MAX_OFFICE_ENTRY_BYTES
+            and self._media_total + info.file_size <= MAX_OFFICE_MEDIA_TOTAL_BYTES
+        ):
+            self._media_total += info.file_size
+            try:
+                found = image_facts(_read_zip_member(self.path, self.archive, member))
+            except ValueError:
+                self.parts.images_unreadable += 1
+            else:
+                facts.update(
+                    sha256=found.sha256,
+                    size_bytes=found.size_bytes,
+                    width_px=found.width_px,
+                    height_px=found.height_px,
+                )
+        else:
+            self.parts.images_unreadable += 1
+        self._media[member] = facts
+        return dict(facts)
+
+    def _content_type(self, member: str) -> str | None:
+        if self._content_types is None:
+            self._content_types = {}
+            root = self.xml("[Content_Types].xml")
+            for node in root if root is not None else []:
+                content_type = (node.get("ContentType") or "").strip().lower()
+                if not content_type:
+                    continue
+                if _local_name(node.tag) == "Default" and node.get("Extension"):
+                    self._content_types[str(node.get("Extension")).lower()] = content_type
+                elif _local_name(node.tag) == "Override" and node.get("PartName"):
+                    self._content_types[str(node.get("PartName"))] = content_type
+        found = content_type_for_member(member, self._content_types)
+        return found.lower() if found else None
+
+    def _count(self, name: str) -> None:
+        if name in self._counted or name not in self.names:
+            return
+        info = self.archive.getinfo(name)
+        _validate_zip_member_size(self.path, info)
+        self._counted.add(name)
+        self._total += info.file_size
+        if self._total > MAX_OFFICE_TOTAL_BYTES:
+            raise _OfficeBudgetError(
+                f"Office file {self.path} contains {self._total} bytes of readable XML, "
+                f"above the {MAX_OFFICE_TOTAL_BYTES} byte aggregate limit"
+            )
+
+
+def _relationships_member(source: str) -> str:
+    """The relationships part of ``source``: ``dir/_rels/name.rels``."""
+
+    parent = PurePosixPath(source).parent
+    rels = PurePosixPath("_rels") / f"{PurePosixPath(source).name}.rels"
+    return str(parent / rels) if str(parent) not in {"", "."} else str(rels)
+
+
+def read_image_bytes(path: Path, asset: ParsedAsset) -> bytes:
+    """Return the bytes of a picture ``builtin_text`` reported for ``path``.
+
+    An Office picture is its package part, read under the same per-entry
+    limit as every part the parser reads. A PDF picture is decoded from the
+    page that draws it and returned as JPEG or PNG, as its ``content_type``
+    says. Raises ``ValueError`` when the asset does not locate a picture in
+    the file.
+    """
+
+    member = asset.metadata.get("member")
+    if not isinstance(member, str) or not member:
+        raise ValueError(f"asset {asset.id} names no picture")
+    suffix = path.suffix.lower()
+    if suffix == ".pdf":
+        return _read_pdf_image(path, asset)
+    if suffix not in {".docx", ".pptx", ".xlsx"}:
+        raise ValueError(f"builtin_text reports no pictures in {suffix} files")
+    with zipfile.ZipFile(path) as archive:
+        if member not in set(archive.namelist()):
+            raise ValueError(f"Office file {path} has no part {member}")
+        return _read_zip_member(path, archive, member)
+
+
+def _read_pdf_image(path: Path, asset: ParsedAsset) -> bytes:
+    page_number = asset.metadata.get("pdf_page_number")
+    names = asset.metadata.get("pdf_xobject_path")
+    if (
+        not isinstance(page_number, int)
+        or not isinstance(names, list)
+        or not names
+        or not all(isinstance(name, str) for name in names)
+    ):
+        raise ValueError(f"asset {asset.id} does not locate a PDF image")
+    if path.stat().st_size > MAX_PDF_SOURCE_BYTES:
+        raise ValueError(f"PDF exceeds the {MAX_PDF_SOURCE_BYTES} byte source limit")
+    reader = PdfReader(str(path))
+    if reader.is_encrypted and not reader.decrypt(""):
+        raise ValueError("password-protected PDFs are not supported by builtin_text OCR")
+    if not 1 <= page_number <= len(reader.pages):
+        raise ValueError(f"PDF has no page {page_number}")
+    payload, _content_type = pdf_image_bytes(reader.pages[page_number - 1], tuple(names))
+    return payload
+
+
+def _pdf_picture_segments(parts: _DocumentParts, page: Any, page_number: int) -> list[_Segment]:
+    """Image assets for the pictures one PDF page holds, found without decoding.
+
+    A page whose resources cannot be walked loses its pictures, not its text.
+    """
+
+    segments: list[_Segment] = []
+    try:
+        found = list(pdf_page_images(page))
+    except Exception:  # noqa: BLE001 - broken resources cost the pictures only
+        parts.images_unreadable += 1
+        return segments
+    for image in found:
+        asset = parts.add_asset(
+            page_number,
+            {
+                "member": f"page:{page_number}/xobject:{'/'.join(image.path)}",
+                "pdf_page_number": page_number,
+                "pdf_xobject_path": list(image.path),
+                "content_type": image.content_type,
+                "sha256": image.sha256,
+                "size_bytes": image.size_bytes,
+                "width_px": image.width_px,
+                "height_px": image.height_px,
+                "alt_text": None,
+            },
+        )
+        segments.append(_Segment("figure", "", metadata={"asset_id": asset.id}))
+    return segments
+
+
+# --- DrawingML shapes (slides, and the drawings of sheets and documents) ---
+
+# Placeholder types that are the slide's title.
+_TITLE_PLACEHOLDERS = frozenset({"title", "ctrTitle"})
+# Notes-page placeholders that show the slide or page furniture, not notes.
+_NOTES_SKIPPED_PLACEHOLDERS = frozenset({"sldImg", "sldNum", "hdr", "ftr", "dt"})
+# A master names its placeholders by kind only; these kinds inherit from the
+# master's placeholder of the kind on the right.
+_MASTER_PLACEHOLDER_KINDS = {
+    "ctrTitle": "title",
+    "subTitle": "body",
+    "obj": "body",
+}
+# Shapes whose tops lie within this many EMU (0.15 inch) of each other are
+# read as one row, left to right: text boxes laid out side by side rarely
+# share an exact top, and a strict top-then-left sort would read the one a
+# hair higher first even when it stands to the right.
+_SAME_ROW_EMU = 137_160
+# SmartArt data-model points that hold the diagram's own text.
+_SMARTART_TEXT_POINTS = frozenset({"", "node", "asst"})
+
+
+@dataclass(frozen=True)
+class _Transform:
+    """Maps a group's child coordinates to slide coordinates (EMU).
+
+    ``x' = scale_x * x + offset_x``; a group scales its children from its
+    child extent (``a:chExt``) to its own extent (``a:ext``).
+    """
+
+    scale_x: float = 1.0
+    scale_y: float = 1.0
+    offset_x: float = 0.0
+    offset_y: float = 0.0
+
+    def point(self, x: float, y: float) -> tuple[float, float]:
+        """A child point in slide coordinates."""
+
+        return self.scale_x * x + self.offset_x, self.scale_y * y + self.offset_y
+
+    def size(self, cx: float, cy: float) -> tuple[float, float]:
+        """A child extent in slide coordinates."""
+
+        return self.scale_x * cx, self.scale_y * cy
+
+    def group(self, xfrm: Element | None) -> _Transform:
+        """The transform for the children of a group with this ``a:xfrm``."""
+
+        if xfrm is None:
+            return self
+        off = _xy(_child_by_local_name(xfrm, "off"), "x", "y")
+        ext = _xy(_child_by_local_name(xfrm, "ext"), "cx", "cy")
+        child_off = _xy(_child_by_local_name(xfrm, "chOff"), "x", "y")
+        child_ext = _xy(_child_by_local_name(xfrm, "chExt"), "cx", "cy")
+        if off is None:
+            return self
+        ext = ext or (1.0, 1.0)
+        child_off = child_off or (0.0, 0.0)
+        child_ext = child_ext or ext
+        scale_x = ext[0] / child_ext[0] if child_ext[0] else 1.0
+        scale_y = ext[1] / child_ext[1] if child_ext[1] else 1.0
+        local = _Transform(
+            scale_x, scale_y, off[0] - scale_x * child_off[0], off[1] - scale_y * child_off[1]
+        )
+        return _Transform(
+            self.scale_x * local.scale_x,
+            self.scale_y * local.scale_y,
+            self.scale_x * local.offset_x + self.offset_x,
+            self.scale_y * local.offset_y + self.offset_y,
+        )
+
+
+@dataclass
+class _Item:
+    """One shape (or group) on a slide, where it sits, and what it says."""
+
+    top: float | None
+    left: float | None
+    segments: list[_Segment]
+
+
+@dataclass
+class _SlideContext:
+    """What reading one slide's shapes needs: its package, part and page."""
+
+    package: _OfficePackage
+    member: str
+    page_number: int
+    placeholders: dict[tuple[str, str], tuple[float, float]]
+    title: list[str] = field(default_factory=list)
+
+
+def _pptx_slide_segments(
+    package: _OfficePackage, member: str, root: Element, page_number: int
+) -> list[_Segment]:
+    """A slide's content in reading order, then its speaker notes.
+
+    The title placeholder comes first as a level-one heading, so chunks of
+    the slide carry it as their section. The remaining shapes follow top to
+    bottom, then left to right (``_reading_order``); a group is read as one
+    unit at its own position, its shapes in the same order inside it.
+    """
+
+    context = _SlideContext(package, member, page_number, _layout_placeholders(package, member))
+    tree = next((node for node in root.iter() if _local_name(node.tag) == "spTree"), None)
+    items = _shape_items(tree, _Transform(), context, depth=0) if tree is not None else []
+    segments: list[_Segment] = []
+    title = " ".join(line for line in context.title if line)
+    if title:
+        segments.append(_Segment("lines", f"# {title}"))
+    for item in _reading_order(items):
+        segments.extend(item.segments)
+    notes = _pptx_notes(package, member)
+    if notes:
+        package.parts.notes_pages += 1
+        segments.append(_Segment("notes", "\n".join([_NOTES_HEADING, *notes])))
+    return segments
+
+
+def _reading_order(items: list[_Item]) -> list[_Item]:
+    """Positioned items top to bottom, a row left to right; then the rest.
+
+    Items whose tops lie within ``_SAME_ROW_EMU`` of the first item of a row
+    are that row. A shape with no position of its own or from its layout is
+    read after every positioned one, in document order, since nothing says
+    where it stands.
+    """
+
+    positioned = sorted(
+        (item for item in items if item.top is not None),
+        key=lambda item: (item.top or 0.0, item.left or 0.0),
+    )
+    ordered: list[_Item] = []
+    row: list[_Item] = []
+    for item in positioned:
+        if row and (item.top or 0.0) - (row[0].top or 0.0) > _SAME_ROW_EMU:
+            ordered.extend(sorted(row, key=lambda entry: entry.left or 0.0))
+            row = []
+        row.append(item)
+    ordered.extend(sorted(row, key=lambda entry: entry.left or 0.0))
+    ordered.extend(item for item in items if item.top is None)
+    return ordered
+
+
+def _shape_items(
+    container: Element, transform: _Transform, context: _SlideContext, *, depth: int
+) -> list[_Item]:
+    """The items of a shape tree or group, with positions in slide EMU."""
+
+    _validate_office_xml_depth(depth)
+    items: list[_Item] = []
+    for node in container:
+        name = _local_name(node.tag)
+        if name == "AlternateContent":
+            items.extend(_alternate_content_items(node, transform, context, depth=depth + 1))
+            continue
+        item: _Item | None = None
+        if name == "sp":
+            item = _text_shape_item(node, transform, context)
+        elif name == "pic":
+            item = _picture_item(node, transform, context)
+        elif name == "graphicFrame":
+            item = _graphic_frame_item(node, transform, context, depth=depth + 1)
+        elif name == "grpSp":
+            properties = _child_by_local_name(node, "grpSpPr")
+            xfrm = _child_by_local_name(properties, "xfrm") if properties is not None else None
+            children = _shape_items(node, transform.group(xfrm), context, depth=depth + 1)
+            segments = [segment for child in _reading_order(children) for segment in child.segments]
+            top, left = _position(node, transform, context)
+            item = _Item(top, left, segments) if segments else None
+        if item is not None and item.segments:
+            items.append(item)
+    return items
+
+
+def _alternate_content_items(
+    node: Element, transform: _Transform, context: _SlideContext, *, depth: int
+) -> list[_Item]:
+    """Read the first choice of an ``mc:AlternateContent``, else its fallback.
+
+    The choice holds the shape as newer Office writes it (a chart type, an
+    equation); when it yields nothing this parser can read, the fallback
+    (usually a picture of the same thing) is read instead.
+    """
+
+    for branch in (
+        *_children_by_local_name(node, "Choice"),
+        *_children_by_local_name(node, "Fallback"),
+    ):
+        items = _shape_items(branch, transform, context, depth=depth)
+        if items:
+            return items
+    return []
+
+
+def _text_shape_item(node: Element, transform: _Transform, context: _SlideContext) -> _Item | None:
+    body = _child_by_local_name(node, "txBody")
+    lines = _drawing_text_lines(body) if body is not None else []
+    if not lines:
+        return None
+    placeholder = _placeholder(node)
+    if placeholder is not None and placeholder[0] in _TITLE_PLACEHOLDERS and not context.title:
+        context.title = lines
+        return None
+    top, left = _position(node, transform, context)
+    return _Item(top, left, [_Segment("lines", "\n".join(lines))])
+
+
+def _picture_item(node: Element, transform: _Transform, context: _SlideContext) -> _Item | None:
+    segment = _drawing_picture(
+        context.package, context.member, context.page_number, node, transform
+    )
+    if segment is None:
+        return None
+    top, left = _position(node, transform, context)
+    return _Item(top, left, [segment])
+
+
+def _graphic_frame_item(
+    node: Element, transform: _Transform, context: _SlideContext, *, depth: int
+) -> _Item | None:
+    """A table, chart, SmartArt diagram or embedded object's preview picture."""
+
+    data = next((child for child in node.iter() if _local_name(child.tag) == "graphicData"), None)
+    if data is None:
+        return None
+    segments = _graphic_data_segments(
+        context.package, context.member, context.page_number, data, transform, depth=depth
+    )
+    top, left = _position(node, transform, context)
+    return _Item(top, left, segments) if segments else None
+
+
+def _graphic_data_segments(
+    package: _OfficePackage,
+    member: str,
+    page_number: int,
+    data: Element,
+    transform: _Transform,
+    *,
+    depth: int,
+) -> list[_Segment]:
+    """The segments one ``a:graphicData`` holds, whatever document it is in."""
+
+    _validate_office_xml_depth(depth)
+    uri = (data.get("uri") or "").rstrip("/")
+    for child in data:
+        name = _local_name(child.tag)
+        if name == "tbl":
+            table = _drawing_table(child)
+            if table is None:
+                return []
+            package.parts.tables += 1
+            return [_Segment("table", table=table)]
+        if name == "chart" and uri.endswith("/chart"):
+            relationship_id = _office_document_relationship_id(child)
+            chart = package.chart(package.target(member, relationship_id, "chart"))
+            return [_Segment("chart", chart=chart)] if chart is not None else []
+        if name == "relIds" and uri.endswith("/diagram"):
+            lines = _smartart_lines(package, member, child)
+            return [_Segment("lines", "\n".join(lines))] if lines else []
+    # An embedded object (OLE) shows a picture of itself; that picture is
+    # what the slide displays.
+    segments: list[_Segment] = []
+    for picture in _descendants(data, "pic", depth=depth + 1):
+        segment = _drawing_picture(package, member, page_number, picture, transform)
+        if segment is not None:
+            segments.append(segment)
+    return segments
+
+
+def _drawing_picture(
+    package: _OfficePackage,
+    member: str,
+    page_number: int,
+    node: Element,
+    transform: _Transform,
+) -> _Segment | None:
+    """A ``p:pic``/``xdr:pic``/``pic:pic`` as an asset and its figure segment."""
+
+    blip = next((child for child in node.iter() if _local_name(child.tag) == "blip"), None)
+    if blip is None:
+        return None
+    relationship_id = _attribute_by_local_name(blip, "embed")
+    target = package.target(member, relationship_id, "image")
+    if target is None:
+        return None
+    properties = next((child for child in node.iter() if _local_name(child.tag) == "cNvPr"), None)
+    extra: dict[str, Any] = {}
+    xfrm = _shape_xfrm(node)
+    extent = _xy(_child_by_local_name(xfrm, "ext"), "cx", "cy") if xfrm is not None else None
+    if extent is not None:
+        width, height = transform.size(*extent)
+        extra["extent_emu"] = {"cx": round(width), "cy": round(height)}
+    return package.picture(page_number, target, alt_text=_alt_text(properties), extra=extra)
+
+
+def _alt_text(properties: Element | None) -> str:
+    """A picture's alt text: its description, else its title."""
+
+    if properties is None:
+        return ""
+    return " ".join((properties.get("descr") or properties.get("title") or "").split())
+
+
+def _drawing_table(table: Element) -> TableData | None:
+    """A DrawingML ``a:tbl`` with merged cells repeated across their span.
+
+    ``header_rows`` is 1 when the table's ``firstRow`` flag marks its first
+    row as a header; without the flag nothing says which rows label columns,
+    so none are counted rather than guessing.
+    """
+
+    properties = _child_by_local_name(table, "tblPr")
+    header_rows = 1 if properties is not None and _truthy(properties.get("firstRow")) else 0
+    rows: list[list[GridCell]] = []
+    for row in _children_by_local_name(table, "tr"):
+        cells: list[GridCell] = []
+        for cell in _children_by_local_name(row, "tc"):
+            body = _child_by_local_name(cell, "txBody")
+            cells.append(
+                GridCell(
+                    text="\n".join(_drawing_text_lines(body)) if body is not None else "",
+                    column_span=_int_attribute(cell, "gridSpan"),
+                    row_span=_int_attribute(cell, "rowSpan"),
+                    continues_left=_truthy(cell.get("hMerge")),
+                    continues_up=_truthy(cell.get("vMerge")),
+                )
+            )
+        rows.append(cells)
+    return table_from_rows(build_rows(rows), header_rows=header_rows)
+
+
+def _drawing_text_lines(body: Element) -> list[str]:
+    """A text body's paragraphs, one line each, line breaks kept.
+
+    Runs within a paragraph join without separators, as they display; a
+    field (a slide number, a date) reads as its cached text.
+    """
+
+    lines: list[str] = []
+    for paragraph in body.iter():
+        if _local_name(paragraph.tag) != "p":
+            continue
+        text = _drawing_paragraph_text(paragraph, depth=0)
+        lines.extend(line.strip() for line in text.split("\n") if line.strip())
+    return lines
+
+
+def _drawing_paragraph_text(node: Element, *, depth: int) -> str:
+    _validate_office_xml_depth(depth)
+    parts: list[str] = []
+    for child in node:
+        name = _local_name(child.tag)
+        if name in {"r", "fld"}:
+            parts.extend(text.text or "" for text in child if _local_name(text.tag) == "t")
+        elif name == "br":
+            parts.append("\n")
+        elif name == "AlternateContent":
+            # An equation's choice is OMML; its fallback is ordinary runs.
+            branches = [
+                *_children_by_local_name(child, "Fallback"),
+                *_children_by_local_name(child, "Choice"),
+            ]
+            for branch in branches:
+                text = _drawing_paragraph_text(branch, depth=depth + 1)
+                if text.strip():
+                    parts.append(text)
+                    break
+    return "".join(parts)
+
+
+def _smartart_lines(package: _OfficePackage, member: str, relationship_ids: Element) -> list[str]:
+    """The text of a SmartArt diagram's nodes, from its data part."""
+
+    data_member = package.target(
+        member, _attribute_by_local_name(relationship_ids, "dm"), "diagram_data"
+    )
+    root = package.xml(data_member) if data_member is not None else None
+    if root is None:
+        return []
+    lines: list[str] = []
+    for point in root.iter():
+        if _local_name(point.tag) != "pt" or (point.get("type") or "") not in _SMARTART_TEXT_POINTS:
+            continue
+        body = _child_by_local_name(point, "t")
+        if body is not None:
+            lines.extend(_drawing_text_lines(body))
+    return lines
+
+
+def _pptx_notes(package: _OfficePackage, slide: str) -> list[str]:
+    """A slide's speaker notes, one line per paragraph.
+
+    The notes page also shows a picture of the slide, its number and page
+    furniture; only its body text, and any text box added to it, is notes.
+    """
+
+    member = package.first_target(slide, "notes")
+    root = package.xml(member) if member is not None else None
+    if root is None:
+        return []
+    lines: list[str] = []
+    for shape in root.iter():
+        if _local_name(shape.tag) != "sp":
+            continue
+        placeholder = _placeholder(shape)
+        if placeholder is not None and placeholder[0] in _NOTES_SKIPPED_PLACEHOLDERS:
+            continue
+        body = _child_by_local_name(shape, "txBody")
+        if body is not None:
+            lines.extend(_drawing_text_lines(body))
+    return lines
+
+
+def _position(
+    node: Element, transform: _Transform, context: _SlideContext
+) -> tuple[float | None, float | None]:
+    """A shape's top and left in slide EMU, from it or its layout placeholder."""
+
+    xfrm = _shape_xfrm(node)
+    offset = _xy(_child_by_local_name(xfrm, "off"), "x", "y") if xfrm is not None else None
+    if offset is not None:
+        left, top = transform.point(*offset)
+        return top, left
+    placeholder = _placeholder(node)
+    if placeholder is None:
+        return None, None
+    kind, index = placeholder
+    inherited = (
+        (context.placeholders.get(("idx", index)) if index else None)
+        or context.placeholders.get(("type", kind))
+        or context.placeholders.get(("master", _MASTER_PLACEHOLDER_KINDS.get(kind, kind)))
+    )
+    if inherited is None:
+        return None, None
+    left, top = inherited
+    return top, left
+
+
+def _layout_placeholders(
+    package: _OfficePackage, slide: str
+) -> dict[tuple[str, str], tuple[float, float]]:
+    """Where the slide's layout and master put each placeholder.
+
+    A placeholder on a slide usually has no position of its own and stands
+    where its layout's placeholder of the same index (or kind) stands, or
+    else where the master's placeholder of that kind does.
+    """
+
+    positions: dict[tuple[str, str], tuple[float, float]] = {}
+    layout = package.first_target(slide, "layout")
+    master = package.first_target(layout, "master") if layout is not None else None
+    for member, keys in ((master, ("master",)), (layout, ("idx", "type"))):
+        root = package.xml(member) if member is not None else None
+        if root is None:
+            continue
+        for shape in root.iter():
+            placeholder = _placeholder(shape)
+            xfrm = _shape_xfrm(shape) if placeholder is not None else None
+            offset = _xy(_child_by_local_name(xfrm, "off"), "x", "y") if xfrm is not None else None
+            if placeholder is None or offset is None:
+                continue
+            kind, index = placeholder
+            for key in keys:
+                if key == "master":
+                    positions.setdefault(
+                        ("master", _MASTER_PLACEHOLDER_KINDS.get(kind, kind)), offset
+                    )
+                elif key == "idx" and index:
+                    positions.setdefault(("idx", index), offset)
+                elif key == "type":
+                    positions.setdefault(("type", kind), offset)
+    return positions
+
+
+def _placeholder(node: Element) -> tuple[str, str] | None:
+    """A shape's placeholder kind and index, if it is a placeholder.
+
+    A placeholder that names no kind is a content placeholder ("obj").
+    """
+
+    properties = next((child for child in node if _local_name(child.tag).startswith("nv")), None)
+    application = _child_by_local_name(properties, "nvPr") if properties is not None else None
+    placeholder = _child_by_local_name(application, "ph") if application is not None else None
+    if placeholder is None:
+        return None
+    return placeholder.get("type") or "obj", placeholder.get("idx") or ""
+
+
+def _shape_xfrm(node: Element) -> Element | None:
+    """The ``xfrm`` of a shape, picture, graphic frame or group."""
+
+    for child in node:
+        name = _local_name(child.tag)
+        if name == "xfrm":
+            return child
+        if name in {"spPr", "grpSpPr"}:
+            return _child_by_local_name(child, "xfrm")
+    return None
+
+
+def _xy(node: Element | None, x_name: str, y_name: str) -> tuple[float, float] | None:
+    if node is None:
+        return None
+    try:
+        x, y = float(node.get(x_name, "")), float(node.get(y_name, ""))
+    except ValueError:
+        return None
+    return (x, y) if math.isfinite(x) and math.isfinite(y) else None
+
+
+def _truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "on"}
+
+
+def _int_attribute(node: Element, local_name: str, default: int = 1) -> int:
+    value = _attribute_by_local_name(node, local_name)
+    try:
+        return int(value) if value is not None else default
+    except ValueError:
+        return default
+
+
+def _descendants(node: Element, local_name: str | frozenset[str], *, depth: int) -> list[Element]:
+    """Descendants named ``local_name`` (or any of a set), one branch of each alternative.
+
+    An ``mc:AlternateContent`` states one thing twice; its first branch that
+    holds a match is read, so a picture is not counted once per branch.
+    """
+
+    _validate_office_xml_depth(depth)
+    names = frozenset({local_name}) if isinstance(local_name, str) else local_name
+    found: list[Element] = []
+    for child in node:
+        name = _local_name(child.tag)
+        if name in names:
+            found.append(child)
+        elif name == "AlternateContent":
+            for branch in child:
+                matches = _descendants(branch, names, depth=depth + 1)
+                if matches:
+                    found.extend(matches)
+                    break
+        else:
+            found.extend(_descendants(child, names, depth=depth + 1))
+    return found
+
+
+def _child_by_local_name(node: Element | None, local_name: str) -> Element | None:
+    if node is None:
+        return None
+    return next((child for child in node if _local_name(child.tag) == local_name), None)
+
+
+def _children_by_local_name(node: Element, local_name: str) -> list[Element]:
+    return [child for child in node if _local_name(child.tag) == local_name]
+
+
+# --- XLSX drawings ---
+
+
+def _xlsx_drawing_segments(package: _OfficePackage, sheet: str, page_number: int) -> list[_Segment]:
+    """The charts and pictures a worksheet's drawing holds, top to bottom.
+
+    Anchors are ordered by the cell they start in (row, then column), the
+    way a reader scanning the sheet meets them.
+    """
+
+    drawing = package.first_target(sheet, "drawing")
+    root = package.xml(drawing) if drawing is not None else None
+    if drawing is None or root is None:
+        return []
+    anchored: list[tuple[tuple[float, float], int, list[_Segment]]] = []
+    for order, anchor in enumerate(root):
+        if not _local_name(anchor.tag).endswith("Anchor"):
+            continue
+        segments = _xlsx_shape_segments(package, drawing, page_number, anchor, depth=1)
+        if segments:
+            anchored.append((_anchor_cell(anchor), order, segments))
+    anchored.sort(key=lambda entry: (entry[0], entry[1]))
+    return [segment for _cell, _order, segments in anchored for segment in segments]
+
+
+def _xlsx_shape_segments(
+    package: _OfficePackage, drawing: str, page_number: int, container: Element, *, depth: int
+) -> list[_Segment]:
+    """Charts and pictures among an anchor's shapes, through groups and alternatives."""
+
+    _validate_office_xml_depth(depth)
+    segments: list[_Segment] = []
+    for node in container:
+        name = _local_name(node.tag)
+        if name == "graphicFrame":
+            data = next(
+                (child for child in node.iter() if _local_name(child.tag) == "graphicData"), None
+            )
+            if data is not None:
+                segments.extend(
+                    _graphic_data_segments(
+                        package, drawing, page_number, data, _Transform(), depth=depth + 1
+                    )
+                )
+        elif name == "pic":
+            segment = _drawing_picture(package, drawing, page_number, node, _Transform())
+            if segment is not None:
+                segments.append(segment)
+        elif name == "grpSp":
+            segments.extend(
+                _xlsx_shape_segments(package, drawing, page_number, node, depth=depth + 1)
+            )
+        elif name == "AlternateContent":
+            for branch in node:
+                found = _xlsx_shape_segments(package, drawing, page_number, branch, depth=depth + 1)
+                if found:
+                    segments.extend(found)
+                    break
+    return segments
+
+
+def _anchor_cell(anchor: Element) -> tuple[float, float]:
+    start = _child_by_local_name(anchor, "from")
+    if start is not None:
+        row = _child_by_local_name(start, "row")
+        column = _child_by_local_name(start, "col")
+        try:
+            return float((row.text if row is not None else "") or 0), float(
+                (column.text if column is not None else "") or 0
+            )
+        except ValueError:
+            return 0.0, 0.0
+    position = _xy(_child_by_local_name(anchor, "pos"), "y", "x")
+    return position or (0.0, 0.0)
+
+
+# --- DOCX ---
+
+
+@dataclass
+class _DocxContext:
+    """The package and part a Word body is read from, for its relationships."""
+
+    package: _OfficePackage
+    member: str
+    page_number: int
+
+
+# Where a Word paragraph draws: DrawingML, or a legacy VML picture.
+_DOCX_PICTURE_ELEMENTS = frozenset({"drawing", "imagedata"})
+# Word's ``w:tblLook`` packs its flags into a hex ``w:val`` in older files;
+# this bit is "first row is a header".
+_TBL_LOOK_FIRST_ROW = 0x0020
+_HEX_BASE = 16
+
+
+def _docx_block_segments(
+    container: Element, context: _DocxContext, depth: int = 0
+) -> list[_Segment]:
+    """A Word body's paragraphs, tables, charts and pictures, in order."""
+
+    _validate_office_xml_depth(depth)
+    segments: list[_Segment] = []
+    for child in container:
+        local_name = _local_name(child.tag)
+        if local_name == "p":
+            text = _docx_inline_text(child).strip()
+            if text:
+                heading_level = _docx_heading_level(child)
+                segments.append(
+                    _Segment("lines", f"{'#' * heading_level} {text}" if heading_level else text)
+                )
+            segments.extend(_docx_drawing_segments(child, context))
+        elif local_name == "tbl":
+            table = _docx_table(child)
+            if table is not None:
+                context.package.parts.tables += 1
+                segments.append(_Segment("table", table=table))
+        elif local_name in {"sdt", "sdtContent"}:
+            segments.extend(_docx_block_segments(child, context, depth + 1))
+    return segments
+
+
+def _docx_drawing_segments(paragraph: Element, context: _DocxContext) -> list[_Segment]:
+    """Charts and pictures drawn in one paragraph, in document order."""
+
+    segments: list[_Segment] = []
+    for node in _descendants(paragraph, _DOCX_PICTURE_ELEMENTS, depth=1):
+        name = _local_name(node.tag)
+        if name == "drawing":
+            properties = next(
+                (child for child in node.iter() if _local_name(child.tag) == "docPr"), None
+            )
+            extent = next(
+                (child for child in node.iter() if _local_name(child.tag) == "extent"), None
+            )
+            data = next(
+                (child for child in node.iter() if _local_name(child.tag) == "graphicData"), None
+            )
+            if data is None:
+                continue
+            uri = (data.get("uri") or "").rstrip("/")
+            if uri.endswith("/chart"):
+                segments.extend(
+                    _graphic_data_segments(
+                        context.package,
+                        context.member,
+                        context.page_number,
+                        data,
+                        _Transform(),
+                        depth=1,
+                    )
+                )
+                continue
+            size = _xy(extent, "cx", "cy")
+            for blip in (child for child in data.iter() if _local_name(child.tag) == "blip"):
+                target = context.package.target(
+                    context.member, _attribute_by_local_name(blip, "embed"), "image"
+                )
+                segment = context.package.picture(
+                    context.page_number,
+                    target,
+                    alt_text=_alt_text(properties),
+                    extra=(
+                        {"extent_emu": {"cx": round(size[0]), "cy": round(size[1])}}
+                        if size is not None
+                        else {}
+                    ),
+                )
+                if segment is not None:
+                    segments.append(segment)
+        elif name == "imagedata":
+            # A legacy VML picture (``w:pict``).
+            target = context.package.target(
+                context.member, _office_document_relationship_id(node), "image"
+            )
+            segment = context.package.picture(
+                context.page_number, target, alt_text=node.get("title") or "", extra={}
+            )
+            if segment is not None:
+                segments.append(segment)
+    return segments
+
+
+def _docx_table(table: Element) -> TableData | None:
+    """A Word table with merged cells repeated across their span.
+
+    Rows marked to repeat as a header on every page (``w:tblHeader``) are
+    header rows. Without them, the table style's "first row" flag
+    (``w:tblLook``) says the first row is a header, as Word displays it.
+    """
+
+    rows: list[list[GridCell]] = []
+    repeated_headers = 0
+    counting_headers = True
+    for row in _docx_flat_children(table, "tr"):
+        properties = _child_by_local_name(row, "trPr")
+        is_header = properties is not None and _docx_on(
+            _child_by_local_name(properties, "tblHeader")
+        )
+        if counting_headers and is_header:
+            repeated_headers += 1
+        else:
+            counting_headers = False
+        cells: list[GridCell] = []
+        for cell in _docx_flat_children(row, "tc"):
+            cell_properties = _child_by_local_name(cell, "tcPr")
+            span = _child_by_local_name(cell_properties, "gridSpan")
+            merge = _child_by_local_name(cell_properties, "vMerge")
+            horizontal = _child_by_local_name(cell_properties, "hMerge")
+            cells.append(
+                GridCell(
+                    text=_docx_cell_text(cell),
+                    column_span=_int_attribute(span, "val") if span is not None else 1,
+                    continues_up=merge is not None
+                    and (_attribute_by_local_name(merge, "val") or "continue") == "continue",
+                    continues_left=horizontal is not None
+                    and (_attribute_by_local_name(horizontal, "val") or "continue") == "continue",
+                )
+            )
+        rows.append(cells)
+    header_rows = repeated_headers or (1 if _docx_first_row_is_header(table) else 0)
+    return table_from_rows(build_rows(rows), header_rows=header_rows)
+
+
+def _docx_first_row_is_header(table: Element) -> bool:
+    properties = _child_by_local_name(table, "tblPr")
+    look = _child_by_local_name(properties, "tblLook")
+    if look is None:
+        return False
+    first_row = _attribute_by_local_name(look, "firstRow")
+    if first_row is not None:
+        return _truthy(first_row)
+    try:
+        return bool(
+            int(_attribute_by_local_name(look, "val") or "0", _HEX_BASE) & _TBL_LOOK_FIRST_ROW
+        )
+    except ValueError:
+        return False
+
+
+def _docx_on(node: Element | None) -> bool:
+    """A Word on/off property: present without ``w:val``, or set to true."""
+
+    if node is None:
+        return False
+    value = _attribute_by_local_name(node, "val")
+    return value is None or _truthy(value)
+
+
+def _docx_flat_children(node: Element, local_name: str, depth: int = 0) -> Iterator[Element]:
+    """Children named ``local_name``, looking through content controls."""
+
+    _validate_office_xml_depth(depth)
+    for child in node:
+        name = _local_name(child.tag)
+        if name == local_name:
+            yield child
+        elif name in {"sdt", "sdtContent", "customXml"}:
+            yield from _docx_flat_children(child, local_name, depth + 1)
 
 
 def _select_pages(pages: list[ParsedPage], page_range: str | None) -> list[ParsedPage]:
@@ -525,38 +1864,6 @@ def _validate_office_archive(
             f"Office file {path} contains {total_bytes} bytes of readable XML, "
             f"above the {MAX_OFFICE_TOTAL_BYTES} byte aggregate limit"
         )
-
-
-def _docx_xml_text(xml_payload: bytes) -> list[str]:
-    """Extract ordered paragraphs, tables, and textbox descendants from one DOCX XML part."""
-
-    root = ElementTree.fromstring(xml_payload)
-    body = next((child for child in root if _local_name(child.tag) == "body"), root)
-    return _docx_block_parts(body)
-
-
-def _docx_block_parts(container: Element, depth: int = 0) -> list[str]:
-    _validate_office_xml_depth(depth)
-    parts: list[str] = []
-    for child in container:
-        local_name = _local_name(child.tag)
-        if local_name == "p":
-            text = _docx_inline_text(child).strip()
-            if not text:
-                continue
-            heading_level = _docx_heading_level(child)
-            parts.append(f"{'#' * heading_level} {text}" if heading_level else text)
-        elif local_name == "tbl":
-            for row in child:
-                if _local_name(row.tag) != "tr":
-                    continue
-                cells = [_docx_cell_text(cell) for cell in row if _local_name(cell.tag) == "tc"]
-                rendered = [cell for cell in cells if cell]
-                if rendered:
-                    parts.append("\t".join(rendered))
-        elif local_name in {"sdt", "sdtContent"}:
-            parts.extend(_docx_block_parts(child, depth + 1))
-    return parts
 
 
 def _docx_heading_level(paragraph: Element) -> int | None:
@@ -681,43 +1988,45 @@ class _HtmlCharsetParser(HTMLParser):
 class _VisibleTextHtmlParser(HTMLParser):
     """Extract visible, structurally useful HTML text without a browser runtime.
 
-    Script-like content is ignored while headings, lists, tables, and paragraph
-    boundaries are represented in the same lightweight syntax used by the text
-    page classifier.
+    Script-like content is ignored while headings, lists and paragraph
+    boundaries are represented in the same lightweight syntax used by the
+    text page classifier. A table is read into a ``TableData`` by the shared
+    ``HtmlTableCollector`` and becomes a table block of its own.
     """
 
     def __init__(self) -> None:
-        """Initialize parser state for visible text, table cells, and nested ignored elements."""
+        """Initialize parser state for visible text, open tables, and ignored elements."""
 
         super().__init__(convert_charrefs=True)
         self._parts: list[str] = []
+        self._segments: list[_Segment] = []
         self._ignored_depth = 0
-        self._table_cell_index = 0
+        self._table: HtmlTableCollector | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         """Track ignored regions and emit separators for structural start tags.
 
-        Attributes are intentionally unused because visible text structure is
-        sufficient for deterministic chunking and avoids interpreting scripts
-        or style-dependent presentation.
+        Attributes are used only for table cell spans; visible text structure
+        is otherwise sufficient for deterministic chunking and avoids
+        interpreting scripts or style-dependent presentation.
         """
 
         normalized = tag.lower()
         if normalized in {"script", "style", "noscript"}:
             self._ignored_depth += 1
+        elif self._ignored_depth:
+            return
+        elif self._table is not None:
+            self._table.start(normalized, attrs)
+        elif normalized == "table":
+            self._flush_text()
+            self._table = HtmlTableCollector("native")
         elif normalized in {"h1", "h2", "h3", "h4", "h5", "h6"}:
             self._parts.append("\n")
             self._parts.append(f"{'#' * int(normalized[1])} ")
-        elif normalized == "tr":
-            self._parts.append("\n")
-            self._table_cell_index = 0
-        elif normalized in {"td", "th"}:
-            if self._table_cell_index:
-                self._parts.append("\t")
-            self._table_cell_index += 1
         elif normalized == "li":
             self._parts.append("\n- ")
-        elif normalized in {"br", "p", "div", "section", "article"}:
+        elif normalized in {"br", "p", "div", "section", "article", "tr"}:
             self._parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
@@ -728,8 +2037,14 @@ class _VisibleTextHtmlParser(HTMLParser):
         """
 
         normalized = tag.lower()
-        if normalized in {"script", "style", "noscript"} and self._ignored_depth:
-            self._ignored_depth -= 1
+        if normalized in {"script", "style", "noscript"}:
+            if self._ignored_depth:
+                self._ignored_depth -= 1
+        elif self._ignored_depth:
+            return
+        elif self._table is not None:
+            if self._table.end(normalized):
+                self._finish_table()
         elif normalized in {
             "p",
             "div",
@@ -749,24 +2064,47 @@ class _VisibleTextHtmlParser(HTMLParser):
     def handle_data(self, data: str) -> None:
         """Capture text nodes that are not inside ignored tags."""
 
-        if not self._ignored_depth:
+        if self._ignored_depth:
+            return
+        if self._table is not None:
+            self._table.data(data)
+        else:
             self._parts.append(data)
 
-    def text(self) -> str:
-        """Return visible text with normalized spaces and meaningful line breaks.
+    def close(self) -> None:
+        """Finish a table the document never closed."""
 
-        This output becomes both page text and block input, so deterministic
-        whitespace is important for stable chunk hashes and evidence offsets.
+        super().close()
+        if self._table is not None:
+            self._finish_table()
+
+    def segments(self) -> list[_Segment]:
+        """The page's text and tables, in document order."""
+
+        self._flush_text()
+        return list(self._segments)
+
+    def _finish_table(self) -> None:
+        table = self._table.table() if self._table is not None else None
+        self._table = None
+        if table is not None:
+            self._segments.append(_Segment("table", table=table))
+
+    def _flush_text(self) -> None:
+        """Turn the text seen since the last table into one lines segment.
+
+        Layout whitespace collapses but paragraph-ish breaks stay, so
+        chunking sees human-readable text rather than a browser DOM dump.
         """
 
-        # Collapse layout whitespace but preserve paragraph-ish breaks so
-        # chunking sees human-readable text rather than a browser DOM dump.
         lines = []
         for line in "".join(self._parts).splitlines():
             normalized = re.sub(r"[ ]+", " ", line).strip()
             if normalized:
                 lines.append(normalized)
-        return "\n".join(lines)
+        self._parts = []
+        if lines:
+            self._segments.append(_Segment("lines", "\n".join(lines)))
 
 
 def _is_pptx_slide_xml(name: str) -> bool:
@@ -810,14 +2148,6 @@ def _pptx_slide_member_names(
         if target and target[1].endswith("/slide") and target[0] in names:
             ordered.append(target[0])
     return list(dict.fromkeys(ordered)) or fallback, [presentation_name, relationships_name]
-
-
-def _pptx_slide_text(xml_payload: bytes) -> str:
-    root = ElementTree.fromstring(xml_payload)
-    values = [
-        node.text or "" for node in root.iter() if node.tag.rsplit("}", 1)[-1] == "t" and node.text
-    ]
-    return "\n".join(value.strip() for value in values if value.strip())
 
 
 def _is_xlsx_sheet_xml(name: str) -> bool:

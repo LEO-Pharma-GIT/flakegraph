@@ -77,6 +77,23 @@ _PROVIDER_OCR_CACHE_FIELDS = {
 }
 
 
+# The revision of what a provider family's parser writes for the same input.
+# A cached parse stays valid only while the parser that wrote it would still
+# write the same text, so a change to a parser's output bumps its family here
+# and every warm cache entry it wrote stops matching. Providers absent from
+# this table keep their keys unchanged.
+#   builtin_text 2: Office tables, charts, speaker notes and pictures as
+#     structured blocks and assets; slide reading order; HTML tables.
+#   MinerU 2: HTML table blocks rendered as markdown tables with structure.
+OCR_PARSER_REVISIONS: dict[str, int] = {
+    "builtin_text": 2,
+    "mineru_internal": 2,
+    "mineru_api": 2,
+}
+# Settings that name the providers a composite provider runs.
+_COMPOSED_PROVIDER_SETTINGS = ("primary_provider", "secondary_provider")
+
+
 def build_ocr_cache_key(
     file: InputFile,
     provider: str,
@@ -86,15 +103,21 @@ def build_ocr_cache_key(
     """Build a deterministic OCR cache key from transport and parsing behavior.
 
     Adapter mapping and endpoint settings matter for generic HTTP OCR, while
-    credential values are removed recursively before hashing.
+    credential values are removed recursively before hashing. The revision
+    of the parser (``OCR_PARSER_REVISIONS``), and of any parser a fallback
+    provider composes, is part of the key.
     """
 
-    options_hash = _hash_payload(
-        {
-            "ocr_options": _provider_ocr_options(provider, options),
-            "provider_settings": _without_secrets(provider_settings or {}),
-        }
-    )
+    payload: dict[str, Any] = {
+        "ocr_options": _provider_ocr_options(provider, options),
+        "provider_settings": _without_secrets(provider_settings or {}),
+    }
+    revisions = _parser_revisions(provider, provider_settings or {})
+    if revisions:
+        # Only present when a parser has a revision, so the keys of every
+        # other provider are what they were.
+        payload["parser_revisions"] = revisions
+    options_hash = _hash_payload(payload)
     return OcrCacheKey(
         id=stable_id("ocr_cache", file.id, file.checksum, provider, options_hash),
         file_id=file.id,
@@ -176,6 +199,22 @@ def _effective_llm_options(provider: str, settings: LlmSettings | None) -> dict[
     if provider == "ollama":
         options["context_window_tokens"] = settings.context_window_tokens
     return options
+
+
+def _parser_revisions(provider: str, provider_settings: dict[str, Any]) -> dict[str, int]:
+    """The parser revisions behind a provider, including the ones it composes.
+
+    A fallback provider returns whichever of its primary and secondary
+    parsed the file, so its cached output changes when either one's does.
+    """
+
+    names = [provider]
+    names.extend(
+        str(provider_settings[key])
+        for key in _COMPOSED_PROVIDER_SETTINGS
+        if isinstance(provider_settings.get(key), str)
+    )
+    return {name: OCR_PARSER_REVISIONS[name] for name in names if name in OCR_PARSER_REVISIONS}
 
 
 def _provider_ocr_options(provider: str, options: OcrOptions) -> dict[str, Any]:

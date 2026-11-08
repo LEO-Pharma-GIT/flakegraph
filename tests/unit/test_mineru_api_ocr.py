@@ -401,9 +401,9 @@ def test_mineru_api_ocr_reads_pages_and_blocks_from_the_content_list(
     assert document.pages[0].markdown == "# Long Short-Term Memory\n\nRecurrent networks forget."
     assert [block.kind for block in document.pages[0].blocks] == ["text", "text"]
     assert [block.kind for block in document.pages[1].blocks] == ["equation", "table"]
-    assert document.pages[1].blocks[1].text == (
-        "Table 1: Error rates\n<table><tr><td>0.1</td></tr></table>"
-    )
+    # The HTML table body is read into rows and written as a markdown table.
+    assert document.pages[1].blocks[1].text == "Table: Table 1: Error rates\n|  |\n| --- |\n| 0.1 |"
+    assert document.pages[1].blocks[1].metadata["table"]["rows"] == [["0.1"]]
     assert document.pages[1].blocks[1].metadata["img_path"] == "images/t.jpg"
     assert "ar 11" not in document.pages[0].markdown
 

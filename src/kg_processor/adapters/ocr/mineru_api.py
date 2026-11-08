@@ -19,13 +19,16 @@ from kg_processor.adapters.ocr.generic_http import (
 from kg_processor.adapters.ocr.mineru_common import (
     HALF_TURN,
     QUARTER_TURNS,
+    content_list_table,
     first_int,
     first_string,
     mineru_assets_from_payloads,
     renumber_page,
     resolve_page_window,
+    table_block_metadata,
     text_length,
     unread_pdf_pages,
+    with_rendered_tables,
     write_rotated_page,
 )
 from kg_processor.domain.documents import (
@@ -36,6 +39,7 @@ from kg_processor.domain.documents import (
     ParsedPage,
 )
 from kg_processor.domain.ids import stable_id
+from kg_processor.domain.tables import render_table
 from kg_processor.ports.ocr import NoTextReadError, OcrOptions
 
 # A parse response carries markdown, layout blocks and inline assets for one
@@ -253,34 +257,71 @@ def _pages_from_content_list(file: InputFile, content_list: list[Any]) -> list[P
     pages: list[ParsedPage] = []
     for page_number, items in sorted(grouped.items()):
         blocks: list[LayoutBlock] = []
+        cursor = 0
         for index, item in enumerate(items):
             kind = str(item.get("type") or "text") if isinstance(item, dict) else "text"
             if kind in _SILENT_CONTENT_TYPES:
-                continue
-            text = _content_list_text(item)
-            if not text.strip():
                 continue
             metadata = (
                 {key: value for key, value in item.items() if key not in _CONTENT_TEXT_KEYS}
                 if isinstance(item, dict)
                 else {}
             )
-            blocks.append(
-                LayoutBlock(
-                    id=stable_id("mineru_api_block", file.id, page_number, index, text[:256]),
-                    page_number=page_number,
-                    kind=kind,
-                    text=text,
-                    metadata=metadata,
+            for part, (piece_kind, text, extra) in enumerate(_content_list_pieces(kind, item)):
+                if not text.strip():
+                    continue
+                if blocks:
+                    cursor += len(_BLOCK_SEPARATOR)
+                start = cursor
+                cursor += len(text)
+                identity: tuple[object, ...] = (index,) if part == 0 else (index, part)
+                blocks.append(
+                    LayoutBlock(
+                        id=stable_id(
+                            "mineru_api_block", file.id, page_number, *identity, text[:256]
+                        ),
+                        page_number=page_number,
+                        kind=piece_kind,
+                        text=text,
+                        metadata={
+                            **metadata,
+                            **extra,
+                            "start_offset": start,
+                            "end_offset": cursor,
+                        },
+                    )
                 )
-            )
         if not blocks:
             continue
-        text = "\n\n".join(block.text for block in blocks)
+        text = _BLOCK_SEPARATOR.join(block.text for block in blocks)
         pages.append(
             ParsedPage(page_number=page_number, markdown=text, raw_text=text, blocks=blocks)
         )
     return pages
+
+
+# Content-list blocks are joined into page text with a blank line between them.
+_BLOCK_SEPARATOR = "\n\n"
+
+
+def _content_list_pieces(kind: str, item: object) -> list[tuple[str, str, dict[str, Any]]]:
+    """The blocks one content-list item becomes: kind, text, extra metadata.
+
+    A table whose body is HTML is written as ``render_table`` writes it,
+    caption included, with the structured table on its block; its footnotes
+    follow as a block of their own. Every other item is one block.
+    """
+
+    table = content_list_table(item) if isinstance(item, dict) else None
+    if table is None:
+        return [(kind, _content_list_text(item), {})]
+    data, footnotes = table
+    pieces: list[tuple[str, str, dict[str, Any]]] = [
+        (kind, render_table(data), table_block_metadata(data))
+    ]
+    if footnotes:
+        pieces.append(("table_footnote", "\n".join(footnotes), {}))
+    return pieces
 
 
 def _require_text(file: InputFile, pages: list[ParsedPage]) -> list[ParsedPage]:
@@ -337,13 +378,16 @@ def _page(file: InputFile, page_number: int, text: str, metadata: dict[str, Any]
             if key not in {"markdown", "md", "content", "text", "raw_text"}
         },
     )
-    return ParsedPage(
+    page = ParsedPage(
         page_number=page_number,
         markdown=text,
         raw_text=text,
         blocks=[block],
         detected_language=first_string(metadata, ["language", "detected_language"]) or None,
     )
+    # Verbatim markdown keeps tables as HTML; they are rewritten as table
+    # blocks with exact offsets (see ``with_rendered_tables``).
+    return with_rendered_tables(page, file_id=file.id, id_prefix="mineru_api_block")
 
 
 _PRIMARY_TEXT_KEYS = ("text", "content", "markdown", "md")
