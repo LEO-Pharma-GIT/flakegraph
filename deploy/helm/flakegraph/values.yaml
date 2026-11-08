@@ -663,6 +663,12 @@ gateway:
       interactive: llm-interactive
       dev: llm-dev
       batch: llm-batch
+    # The most tokens a reasoning model may think before it must answer, per
+    # alias, for the in-cluster engines (vLLM's thinking_token_budget). A
+    # model left to think on a long prompt can spend its whole output budget
+    # thinking and return no answer; a cap keeps room for one. Unset means no
+    # cap. A caller's own request does not override it: the proxy sets it.
+    thinkingTokenBudget: {}
     # What the three aliases resolve to.
     #
     # "engine" is the in-cluster serving plane: every alias is the model the
@@ -886,6 +892,11 @@ controlPlane:
     # lets the model decide; the answer itself always reasons as the model
     # sees fit.
     structuredReasoning: none
+    # The embedding model Ask embeds questions with to search passages by
+    # meaning as well as by words, through the same gateway and key. It must
+    # be the model the graphs' chunks were embedded with, and the key must be
+    # allowed to call it; empty searches by words alone.
+    embeddingModel: ""
   resources:
     requests:
       cpu: 250m

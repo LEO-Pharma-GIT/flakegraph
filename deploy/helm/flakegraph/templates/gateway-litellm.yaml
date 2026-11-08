@@ -20,6 +20,12 @@ a band, so which alias a virtual key may call is its priority.
       model: hosted_vllm/{{ $.Values.modelServing.model.name }}
       api_base: {{ include "flakegraph.inferenceRouterEndpoint" $ }}
       api_key: os.environ/{{ $secretKey }}
+      {{- with index ($litellm.thinkingTokenBudget | default dict) $class }}
+      # The engine stops this class thinking after so many tokens, so a long
+      # prompt still leaves room for the answer.
+      extra_body:
+        thinking_token_budget: {{ . }}
+      {{- end }}
       {{- if include "flakegraph.lanesEnabled" $ }}
       # The lane the router should place this class in. Set here, per alias,
       # because the proxy does not forward a client's own headers: the lane

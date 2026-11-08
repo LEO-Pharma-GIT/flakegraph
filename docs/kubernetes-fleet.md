@@ -614,6 +614,21 @@ saved state, so `modelServing.server.prefixCacheRetentionInterval` sets how many
 tokens separate them. It must be a multiple of the engine's scheduler block
 size, and an engine given any other value says which and refuses to start.
 
+A reasoning model given a long prompt can think until its output budget is
+gone and return no answer. `gateway.litellm.thinkingTokenBudget` caps how many
+tokens each alias may think (`interactive`, `dev`, `batch`); the proxy adds
+vLLM's `thinking_token_budget` to that alias's requests, so a caller cannot
+lift it. It is unset by default. Questions in the console run on the
+interactive alias; a cap of a few thousand tokens leaves room for the answer
+on every step.
+
+Ask searches a graph's passages by their words, and by meaning when
+`controlPlane.ask.embeddingModel` names the model the graph's chunks were
+embedded with. The console then embeds each question through the gateway with
+its own key, which must be allowed to call that model. A graph embedded with
+another model, or a vector width that does not match, is searched by words
+alone.
+
 The picker selects engine pods by label rather than through an `InferencePool`,
 so no Gateway API Inference Extension CRDs are required.
 

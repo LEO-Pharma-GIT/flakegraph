@@ -802,6 +802,24 @@
                 }
               }
             },
+            "thinkingTokenBudget": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "interactive": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "dev": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "batch": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
             "virtualKeySecret": {
               "type": "object",
               "additionalProperties": false,
@@ -1138,6 +1156,9 @@
                 "high",
                 "inherit"
               ]
+            },
+            "embeddingModel": {
+              "type": "string"
             }
           }
         },

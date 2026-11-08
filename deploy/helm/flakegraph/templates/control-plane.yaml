@@ -242,6 +242,10 @@ spec:
               value: {{ $controlPlane.ask.model | quote }}
             - name: FLAKEGRAPH_ASK_STRUCTURED_REASONING
               value: {{ $controlPlane.ask.structuredReasoning | quote }}
+            {{- with $controlPlane.ask.embeddingModel }}
+            - name: FLAKEGRAPH_ASK_EMBEDDING_MODEL
+              value: {{ . | quote }}
+            {{- end }}
             - name: FLAKEGRAPH_ASK_API_KEY
               valueFrom:
                 secretKeyRef:

@@ -534,6 +534,24 @@ def test_the_gateway_expresses_priority_as_which_alias_a_key_may_call() -> None:
     )
 
 
+def test_a_thinking_budget_is_set_per_alias_and_absent_by_default() -> None:
+    """Cap how long a class may think, at the proxy, only where the values ask."""
+
+    def served(rendered: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        config = yaml.safe_load(
+            _one(rendered, "ConfigMap", f"{_FULLNAME}-litellm")["data"]["config.yaml"]
+        )
+        return {entry["model_name"]: entry["litellm_params"] for entry in config["model_list"]}
+
+    aliases = _values()["gateway"]["litellm"]["aliases"]
+    assert all("extra_body" not in params for params in served(_render(())).values())
+
+    capped = served(_render(("gateway.litellm.thinkingTokenBudget.interactive=4096",)))
+    assert capped[aliases["interactive"]]["extra_body"] == {"thinking_token_budget": 4096}
+    assert "extra_body" not in capped[aliases["batch"]]
+    assert "extra_body" not in capped[aliases["dev"]]
+
+
 def test_placement_routes_on_the_pickers_choice_and_needs_no_crds() -> None:
     """Keep the chart installable where no Inference Extension CRDs exist."""
 
@@ -616,6 +634,31 @@ def test_the_console_runs_the_fleet_the_way_the_workers_do() -> None:
     # Helper calls (planning, scoring, suggestions) ask the reasoning model
     # for no reasoning: measured 15 s against 2.7 s for one plan.
     assert env["FLAKEGRAPH_ASK_STRUCTURED_REASONING"]["value"] == "none"
+    # Passage search by meaning is opt-in: it needs the graphs' embedding model.
+    assert "FLAKEGRAPH_ASK_EMBEDDING_MODEL" not in env
+    embedding = _env(
+        _container(
+            _pod(
+                _one(
+                    _render(
+                        (
+                            *_SERVING,
+                            *_GATED,
+                            "spark.enabled=true",
+                            "artifactStorage.uri=s3://artifacts",
+                            "artifactStorage.existingSecret=artifacts",
+                            "controlPlane.ask.secretName=ask",
+                            "controlPlane.ask.embeddingModel=example/embedder",
+                        )
+                    ),
+                    "Deployment",
+                    f"{_FULLNAME}-app",
+                )
+            ),
+            "control-plane",
+        )
+    )
+    assert embedding["FLAKEGRAPH_ASK_EMBEDDING_MODEL"]["value"] == "example/embedder"
     assert {
         probe["httpGet"]["path"]
         for probe in (console["startupProbe"], console["readinessProbe"], console["livenessProbe"])
