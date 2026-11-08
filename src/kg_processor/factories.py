@@ -177,8 +177,9 @@ def build_distributed_pipeline(
 ) -> KgProcessorPipeline:
     """Build only providers required by a distributed worker's eligible stages.
 
-    Preparation needs OCR/cache, extraction needs LLM/extractors, and
-    local finalization needs LLM/embeddings/writer. Spark finalization runs through
+    Preparation needs OCR/cache, and the LLM too when it reads pictures
+    (``ocr.read_figures``); extraction needs LLM/extractors, and local
+    finalization needs LLM/embeddings/writer. Spark finalization runs through
     its executor composition and therefore does not require those providers in the
     lightweight queue worker process.
     """
@@ -207,7 +208,8 @@ def build_distributed_pipeline(
         and bool(settings.distributed.artifact_uri)
     )
     needs_local_finalize = TaskStage.FINALIZE_GRAPH in stages and not spark_finalization
-    needs_llm = needs_extract or needs_local_finalize
+    reads_pictures = needs_prepare and settings.ocr.read_figures
+    needs_llm = needs_extract or needs_local_finalize or reads_pictures
     collector = ConsumptionCollector(settings.job.graph_id, job_id=settings.job.job_id)
     llm = build_llm_provider(settings, collector) if needs_llm else cast(LlmProvider, unused)
     return KgProcessorPipeline(

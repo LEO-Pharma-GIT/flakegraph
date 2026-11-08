@@ -286,3 +286,17 @@ def test_billed_enrichment_failure_is_recorded(call: str, stage: str) -> None:
         getattr(provider, call)(None)
     [event] = collector.events
     assert (event.stage, event.usage.total_tokens) == (stage, 13)
+
+
+def test_preparation_has_a_model_only_when_it_reads_pictures(tmp_path: Path) -> None:
+    """A prepare worker that reads pictures needs the LLM; one that does not never builds it."""
+
+    stages = {TaskStage.PREPARE_DOCUMENT}
+    plain = build_distributed_pipeline(_settings(tmp_path), stages)
+    with pytest.raises(RuntimeError, match="unavailable dependency"):
+        plain.llm.capabilities()
+
+    reading = _settings(tmp_path).model_copy(deep=True)
+    reading.ocr.read_figures = True
+    pipeline = build_distributed_pipeline(reading, stages)
+    assert isinstance(pipeline.llm, MeteredLlmProvider)
