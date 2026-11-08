@@ -319,6 +319,14 @@ class OcrSettings(_SettingsModel):
     # model's image tokens grow with the pixels, its reading barely does.
     figure_max_side_px: int = Field(default=1536, ge=256)
     figure_max_output_tokens: int = Field(default=3072, gt=0)
+    # Pictures read at once for one document. A deck can hold hundreds, and
+    # each call is short, so this - not the extraction parallelism a
+    # prepare worker otherwise has no use for - decides how long it takes.
+    figure_parallelism: int = Field(default=8, gt=0)
+    # A picture call that has not answered in this long is given up: a
+    # picture is optional, and the run's own model timeout (often an hour)
+    # would hold its whole document.
+    figure_timeout_seconds: int = Field(default=300, gt=0)
 
     def consumption_model(self, provider: str | None = None) -> str:
         """Return the name document parsing should be billed under.

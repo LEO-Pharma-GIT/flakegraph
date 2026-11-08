@@ -8,6 +8,7 @@ from typing import Any, cast
 
 import pytest
 
+from kg_processor.application.distributed_planner import distributed_processing_config_digest
 from kg_processor.application.llm_extractors import LlmEntityExtractor
 from kg_processor.application.pipeline import KgProcessorPipeline
 from kg_processor.config.settings import Settings
@@ -332,3 +333,30 @@ def test_a_location_carried_with_a_file_wins_over_the_readers_roots(tmp_path: Pa
     [document] = prepared.document_rows
     assert document["folder"] == "Lab A/Trial 3"
     assert prepared.chunks[0].content.startswith("Location: Lab A/Trial 3/notes.txt")
+
+
+def test_pictures_are_read_with_their_own_parallelism_and_timeout(tmp_path: Path) -> None:
+    """A prepare worker's extraction parallelism and the run's model timeout do not apply."""
+
+    pipeline = _context_pipeline(tmp_path, "figure-policy")
+    pipeline.settings.ocr.figure_parallelism = 6
+    pipeline.settings.ocr.figure_timeout_seconds = 120
+    pipeline.settings.llm.timeout_seconds = 3600
+
+    policy = pipeline._figure_policy()  # noqa: SLF001
+
+    assert policy.parallelism == 6
+    assert policy.timeout_seconds == 120
+
+
+def test_picture_throughput_settings_do_not_change_which_workers_may_claim_a_run() -> None:
+    """How fast pictures are read is the deployment's business, like any parallelism."""
+
+    base = Settings.load(overrides={"ocr": {"read_figures": True}})
+    tuned = Settings.load(
+        overrides={
+            "ocr": {"read_figures": True, "figure_parallelism": 3, "figure_timeout_seconds": 9}
+        }
+    )
+
+    assert distributed_processing_config_digest(base) == distributed_processing_config_digest(tuned)

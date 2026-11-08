@@ -1675,7 +1675,7 @@ class KgProcessorPipeline:
         ocr = self.settings.ocr
         return FigurePolicy(
             model=ocr.figure_model or self.settings.llm.model,
-            timeout_seconds=self.settings.llm.timeout_seconds,
+            timeout_seconds=min(ocr.figure_timeout_seconds, self.settings.llm.timeout_seconds),
             max_output_tokens=ocr.figure_max_output_tokens,
             min_side_px=ocr.figure_min_side_px,
             min_bytes=ocr.figure_min_bytes,
@@ -1684,7 +1684,7 @@ class KgProcessorPipeline:
             max_per_document=ocr.figure_max_per_document,
             max_side_px=ocr.figure_max_side_px,
             seed=self.settings.graph.deterministic_seed,
-            parallelism=self.settings.graph.extraction_parallelism,
+            parallelism=ocr.figure_parallelism,
         )
 
     def _figure_settings_fingerprint(self) -> dict[str, object]:

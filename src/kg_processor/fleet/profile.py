@@ -30,6 +30,8 @@ REQUIRED_WORKER_COMPONENTS = frozenset({"worker-prepare", "worker-extract", "wor
 DEPLOYMENT_LOCAL_KEYS: Mapping[str, frozenset[str]] = {
     "ocr": frozenset(
         {
+            "figure_parallelism",
+            "figure_timeout_seconds",
             "mineru_api_key",
             "mineru_api_url",
             "mineru_command",

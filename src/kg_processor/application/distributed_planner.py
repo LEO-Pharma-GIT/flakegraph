@@ -595,6 +595,8 @@ def distributed_processing_compatibility_config(settings: Settings) -> dict[str,
         "ocr": _without_keys(
             full["ocr"],
             {
+                "figure_parallelism",
+                "figure_timeout_seconds",
                 "mineru_api_key",
                 "mineru_api_url",
                 "mineru_command",

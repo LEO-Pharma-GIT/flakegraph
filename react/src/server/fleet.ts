@@ -22,7 +22,7 @@ export interface FleetProfile {
 // parallelism) are re-applied from the request afterwards.
 export const FLEET_SECTIONS = ["ocr", "generic_http_ocr", "llm", "embedding", "graph", "extractors"] as const;
 export const DEPLOYMENT_LOCAL_KEYS: Record<string, readonly string[]> = {
-  ocr: ["mineru_api_url", "timeout_seconds"],
+  ocr: ["mineru_api_url", "timeout_seconds", "figure_parallelism", "figure_timeout_seconds"],
   generic_http_ocr: ["endpoint", "api_key", "max_response_bytes"],
   llm: ["timeout_seconds"],
   embedding: ["batch_size", "device"],
