@@ -17,8 +17,13 @@ import { resolveAskModel } from "./model";
 
 /** The most documents one question reads separately. */
 export const PER_DOCUMENT_MAX_DOCUMENTS = 64;
-/** Calls in flight at once: enough to keep a fleet of engines busy, few enough to share it. */
-export const PER_DOCUMENT_CONCURRENCY = 8;
+/**
+ * Calls in flight at once. Each is short - a few thousand tokens in, a few
+ * hundred out - so this is what decides how long a question across many
+ * documents takes: enough to keep several engines busy, and still a share of
+ * what a serving fleet admits at once.
+ */
+export const PER_DOCUMENT_CONCURRENCY = 16;
 /** Passages each document is read from. */
 export const PER_DOCUMENT_PASSAGES = 10;
 /** How much of one document's passages and card a call reads. */

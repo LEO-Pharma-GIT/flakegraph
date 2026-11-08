@@ -202,7 +202,7 @@ Use it for questions about the documents themselves - which of them cover someth
     readEachDocument: tool({
       description: `Read several documents one by one for the same question, in parallel, and get what each says on it - or that it says nothing.
 
-Use it whenever the answer spans documents: comparing them, listing or counting the ones that found or did something, or "which/all/every" questions. One search across all documents favours a few of them; this reads each separately. Pass documentIds from findDocuments or searchPassages, or omit them to read the documents whose cards and passages best match the question (up to ${PER_DOCUMENT_MAX_DOCUMENTS}). Your answer must then account for every document that bears on the question.`,
+Use it whenever the answer spans documents: comparing them, listing or counting the ones that found or did something, or "which/all/every" questions. One search across all documents favours a few of them; this reads each separately. Pass documentIds from findDocuments or searchPassages, or omit them to read the documents whose cards and passages best match the question (up to ${PER_DOCUMENT_MAX_DOCUMENTS}). Read the whole set in one call - never split it into batches - and follow up only on the documents it could not read. Your answer must then account for every document that bears on the question.`,
       inputSchema: z.object({
         question: z.string().min(1).describe("The question each document is read for, as the user asked it."),
         query: z.string().optional().describe("Words to find each document's relevant passages; defaults to the question."),
