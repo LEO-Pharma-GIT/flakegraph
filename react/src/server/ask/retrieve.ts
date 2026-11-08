@@ -25,6 +25,8 @@ import {
 } from "./constants";
 import { asNumber, asString, asStringArray, distanceFromScore, scoreHaystack, tokenize } from "./score";
 import type { CommunityHit, EntityHit, EvidenceHit, GraphDocument, RelationHit } from "./types";
+import { Bm25Index } from "./bm25";
+import { chunkText, passageIndex } from "./passages";
 
 export function fuseRrf<T extends { id: string }>(left: T[], right: T[], topK: number): T[] {
   const scores = new Map<string, number>();
@@ -165,49 +167,72 @@ export function searchRelations(
     .slice(0, topK);
 }
 
+/**
+ * Quotes and chunks ranked by BM25 against a query.
+ *
+ * The rows are those it always searched - every evidence quote and every
+ * chunk - indexed once per loaded graph rather than rescanned per question.
+ * BM25 weighs a rare term above a common one and does not let a long chunk
+ * win by length alone, which a raw match count did. Quotes and chunks are
+ * ranked in indexes of their own and fused by reciprocal rank: in one index a
+ * sentence-long quote sets the average length every chunk is measured
+ * against, and chunks would rank by brevity. The chunks' index is the one
+ * passage search uses.
+ */
 export function searchEvidence(
   dataset: GraphDataset,
   query: string,
   topK = 12,
 ): EvidenceHit[] {
-  const terms = tokenize(query);
-  if (terms.length === 0) {
+  if (tokenize(query).length === 0) {
     return [];
   }
+  const quotes = quoteIndex(dataset);
+  const fromQuotes = quotes.bm25
+    .search(query, topK, (position) => Boolean(quotes.rows[position]!.quote))
+    .map(({ position, score }) => ({ ...quotes.rows[position]!, score, distance: distanceFromScore(score) }));
   const nameById = entityNameIndex(dataset);
-  const fromEvidence = dataset.evidence.map((row, index) => {
-    const quote = asString(row.quote ?? row.sentence ?? row.content);
-    const entityId = evidenceEntityId(row);
-    return {
-      id: asString(row.id) || `evidence_${index}`,
-      quote,
-      documentId: evidenceDocumentId(row),
-      entityId,
-      entityName: entityId ? nameById.get(entityId) ?? null : null,
-      relationId: evidenceRelationId(row),
-      score: scoreHaystack(quote, terms),
-      distance: 0,
-    };
-  });
-  const fromChunks = dataset.chunks.map((row, index) => {
-    const quote = asString(row.content ?? row.text ?? row.quote);
-    const entityId = evidenceEntityId(row);
-    return {
-      id: asString(row.id) || `chunk_${index}`,
-      quote,
-      documentId: evidenceDocumentId(row),
-      entityId,
-      entityName: entityId ? nameById.get(entityId) ?? null : null,
-      relationId: evidenceRelationId(row),
-      score: scoreHaystack(quote, terms),
-      distance: 0,
-    };
-  });
-  return [...fromEvidence, ...fromChunks]
-    .map((hit) => ({ ...hit, distance: distanceFromScore(hit.score) }))
-    .filter((hit) => hit.quote && hit.score > 0)
-    .sort((left, right) => right.score - left.score)
-    .slice(0, topK);
+  const fromChunks = passageIndex(dataset)
+    .bm25.search(query, topK, (position) => Boolean(chunkText(dataset.chunks[position]!)))
+    .map(({ position, score }) => {
+      const row = dataset.chunks[position]!;
+      return {
+        ...evidenceRow(row, asString(row.id) || `chunk_${position}`, chunkText(row), nameById),
+        score,
+        distance: distanceFromScore(score),
+      };
+    });
+  return fuseRrf(fromQuotes, fromChunks, topK);
+}
+
+const quoteIndexes = new WeakMap<GraphDataset, { rows: EvidenceHit[]; bm25: Bm25Index }>();
+
+function quoteIndex(dataset: GraphDataset): { rows: EvidenceHit[]; bm25: Bm25Index } {
+  const known = quoteIndexes.get(dataset);
+  if (known) {
+    return known;
+  }
+  const nameById = entityNameIndex(dataset);
+  const rows = dataset.evidence.map((source, index) =>
+    evidenceRow(source, asString(source.id) || `evidence_${index}`, asString(source.quote ?? source.sentence ?? source.content), nameById),
+  );
+  const index = { rows, bm25: new Bm25Index(rows.map((hit) => hit.quote)) };
+  quoteIndexes.set(dataset, index);
+  return index;
+}
+
+function evidenceRow(source: Record<string, unknown>, id: string, quote: string, nameById: Map<string, string>): EvidenceHit {
+  const entityId = evidenceEntityId(source);
+  return {
+    id,
+    quote,
+    documentId: evidenceDocumentId(source),
+    entityId,
+    entityName: entityId ? nameById.get(entityId) ?? null : null,
+    relationId: evidenceRelationId(source),
+    score: 0,
+    distance: 1,
+  };
 }
 
 export function incidentRelations(dataset: GraphDataset, entityIds: string[]): RelationHit[] {

@@ -1,6 +1,5 @@
 import "server-only";
 
-import { readFileSync } from "node:fs";
 import { createAzure } from "@ai-sdk/azure";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { SharedV4ProviderOptions as ProviderOptions } from "@ai-sdk/provider";
@@ -11,6 +10,19 @@ import {
   DEFAULT_OLLAMA_BASE_URL,
   DEFAULT_OLLAMA_MODEL,
 } from "./constants";
+import {
+  ASK_API_VERSION_VARIABLES,
+  ASK_BASE_VARIABLES,
+  ASK_KEY_VARIABLES,
+  askEnv,
+  azureOpenAiBase,
+  first,
+  isAzureHost,
+  OLLAMA_BASE_VARIABLES,
+  ollamaOpenAiBase,
+  ollamaReachable,
+  resetProviderEnv,
+} from "./provider-env";
 
 export interface AskModel {
   languageModel: LanguageModel;
@@ -47,9 +59,6 @@ function structuredOptions(env: Record<string, string | undefined>): AskModel["s
 }
 
 let cached: AskModel | null | undefined;
-// The secrets file is read once per process and said so once: an operator
-// reading the log should see which file, if any, the credentials came from.
-let secretFile: { path: string | null; values: Record<string, string> } | undefined;
 // Whether the resolved model answered a probe. A local engine is assumed
 // from its address alone, and one that is not running would otherwise be
 // "configured" and fail every call; the probe settles it once per process.
@@ -58,7 +67,7 @@ let probed: Promise<void> | null = null;
 export function resetAskModel(): void {
   cached = undefined;
   probed = null;
-  secretFile = undefined;
+  resetProviderEnv();
 }
 
 export function resolveAskModel(): AskModel | null {
@@ -103,8 +112,8 @@ export async function probeAskModel(): Promise<AskModel | null> {
 const OLLAMA_PROBE_TIMEOUT_MS = 1_500;
 
 function ollamaBaseUrl(): string {
-  const env = { ...loadOptionalSecretFile(), ...process.env };
-  const base = first(env, ["FLAKEGRAPH_ASK_OLLAMA_BASE_URL", "OLLAMA_HOST"]) ?? DEFAULT_OLLAMA_BASE_URL;
+  const env = askEnv();
+  const base = first(env, OLLAMA_BASE_VARIABLES) ?? DEFAULT_OLLAMA_BASE_URL;
   return base.replace(/\/$/, "").replace(/\/v1$/, "");
 }
 
@@ -113,12 +122,12 @@ export function askModelConfigured(): boolean {
 }
 
 function loadAskModel(): AskModel | null {
-  const env = { ...loadOptionalSecretFile(), ...process.env };
+  const env = askEnv();
   const structured = structuredOptions(env);
-  const askKey = first(env, ["FLAKEGRAPH_ASK_API_KEY", "AZURE_OPENAI_API_KEY", "OPENAI_API_KEY"]);
-  const askBase = first(env, ["FLAKEGRAPH_ASK_BASE_URL", "AZURE_OPENAI_ENDPOINT", "OPENAI_API_BASE_URL"]);
+  const askKey = first(env, ASK_KEY_VARIABLES);
+  const askBase = first(env, ASK_BASE_VARIABLES);
   const askModel = first(env, ["FLAKEGRAPH_ASK_MODEL", "AZURE_OPENAI_DEPLOYMENT"]) ?? DEFAULT_AZURE_DEPLOYMENT;
-  const apiVersion = first(env, ["FLAKEGRAPH_ASK_API_VERSION", "AZURE_OPENAI_API_VERSION"]) ?? DEFAULT_AZURE_API_VERSION;
+  const apiVersion = first(env, ASK_API_VERSION_VARIABLES) ?? DEFAULT_AZURE_API_VERSION;
 
   if (askKey && askBase && isAzureHost(askBase)) {
     const baseURL = azureOpenAiBase(askBase);
@@ -148,11 +157,11 @@ function loadAskModel(): AskModel | null {
     };
   }
 
-  const ollamaBase = first(env, ["FLAKEGRAPH_ASK_OLLAMA_BASE_URL", "OLLAMA_HOST"]) ?? DEFAULT_OLLAMA_BASE_URL;
+  const ollamaBase = first(env, OLLAMA_BASE_VARIABLES) ?? DEFAULT_OLLAMA_BASE_URL;
   const ollamaModel = first(env, ["FLAKEGRAPH_ASK_OLLAMA_MODEL"]) ?? DEFAULT_OLLAMA_MODEL;
   if (ollamaReachable(ollamaBase)) {
     const openai = createOpenAI({
-      baseURL: ollamaBase.replace(/\/$/, "").replace(/\/v1$/, "") + "/v1",
+      baseURL: ollamaOpenAiBase(ollamaBase),
       apiKey: "ollama",
     });
     return {
@@ -165,86 +174,4 @@ function loadAskModel(): AskModel | null {
   }
 
   return null;
-}
-
-function isAzureHost(url: string): boolean {
-  return /cognitiveservices\.azure\.com|openai\.azure\.com|services\.ai\.azure\.com/i.test(url);
-}
-
-function azureOpenAiBase(url: string): string {
-  const trimmed = url.replace(/\/$/, "");
-  if (trimmed.endsWith("/openai/v1")) {
-    return trimmed.replace(/\/v1$/, "");
-  }
-  if (trimmed.endsWith("/openai")) {
-    return trimmed;
-  }
-  return `${trimmed}/openai`;
-}
-
-function ollamaReachable(base: string): boolean {
-  if (process.env.FLAKEGRAPH_ASK_DISABLE_OLLAMA === "1") {
-    return false;
-  }
-  try {
-    const url = new URL(base.includes("://") ? base : `http://${base}`);
-    return url.hostname === "127.0.0.1" || url.hostname === "localhost";
-  } catch {
-    return false;
-  }
-}
-
-function first(env: Record<string, string | undefined>, keys: string[]): string | undefined {
-  for (const key of keys) {
-    const value = env[key]?.trim();
-    if (value) {
-      return value;
-    }
-  }
-  return undefined;
-}
-
-/**
- * Credentials for the Ask model may come from one dotenv-style file, and
- * only the one `FLAKEGRAPH_ASK_SECRETS_FILE` names. Nothing is looked for
- * by convention: a file the operator did not name must not be able to turn
- * on a billed provider. Which file was read is logged once.
- */
-function loadOptionalSecretFile(): Record<string, string> {
-  if (secretFile) {
-    return secretFile.values;
-  }
-  const configured = process.env.FLAKEGRAPH_ASK_SECRETS_FILE?.trim();
-  if (!configured) {
-    secretFile = { path: null, values: {} };
-    return secretFile.values;
-  }
-  try {
-    const values = parseEnvFile(readFileSync(configured, "utf8"));
-    console.info(`Ask: read ${Object.keys(values).length} variables from FLAKEGRAPH_ASK_SECRETS_FILE (${configured})`);
-    secretFile = { path: configured, values };
-  } catch (error) {
-    console.warn(
-      `Ask: FLAKEGRAPH_ASK_SECRETS_FILE (${configured}) could not be read: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    secretFile = { path: configured, values: {} };
-  }
-  return secretFile.values;
-}
-
-function parseEnvFile(contents: string): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const line of contents.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) {
-      continue;
-    }
-    const index = trimmed.indexOf("=");
-    const key = trimmed.slice(0, index).replace(/^export\s+/, "").trim();
-    const value = trimmed.slice(index + 1).trim().replace(/^['"]|['"]$/g, "");
-    if (key) {
-      env[key] = value;
-    }
-  }
-  return env;
 }

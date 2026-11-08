@@ -3,6 +3,7 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { evidenceDocumentId, evidenceEntityId, evidenceRelationId } from "@/lib/evidence";
 import { GraphCache } from "./graph-cache";
+import { attachRetrievalSource, isStructuredBlockKind, STRUCTURED_BLOCK_COLUMNS } from "./graph-retrieval";
 import { capGraph } from "./graph-filter";
 import { GRAPH_REVIEW_ROW_LIMITS, type GraphDataset } from "./protocol/schema";
 import type { GraphLoadOptions } from "./protocol/runtime";
@@ -146,7 +147,7 @@ async function readLocalGraph(directory: string, options: GraphLoadOptions): Pro
   const graphId = String(
     runReport.graph_id ?? (nodes[0]?.graph_id as string | undefined) ?? path.basename(directory),
   );
-  return {
+  const dataset: GraphDataset = {
     graphId,
     nodes,
     edges,
@@ -160,6 +161,18 @@ async function readLocalGraph(directory: string, options: GraphLoadOptions): Pro
     runReport,
     graphMetrics: await readJsonObject(path.join(directory, "graph_metrics.json")),
   };
+  if (options.purpose === "retrieval") {
+    // Table, chart and figure blocks, for tools that return a table's rows
+    // rather than its rendering; their text is already in the chunks, so the
+    // text column is not read. The chunk vectors stay on disk until a search
+    // needs them: a graph asked nothing pays nothing for them.
+    const blocks = await readOptionalTable(directory, "blocks", STRUCTURED_BLOCK_COLUMNS);
+    attachRetrievalSource(dataset, {
+      directory,
+      blocks: blocks.filter((block) => isStructuredBlockKind(block.kind)),
+    });
+  }
+  return dataset;
 }
 
 /** Give each retained relation grounding before filling the bounded review with node quotes. */

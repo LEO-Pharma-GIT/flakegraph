@@ -62,7 +62,7 @@ export function groundingFromToolOutput(output: unknown): AskGrounding {
     ...asStringArray(row.communityIds),
     ...asObjectIds(row.communities),
   ];
-  const citations = asCitations(row.citations);
+  const citations = [...asCitations(row.citations), ...asCitations(passageCitations(row.passages))];
   const counts = row.counts && typeof row.counts === "object" ? (row.counts as Record<string, unknown>) : {};
   return mergeGrounding(grounding, {
     entityIds,
@@ -171,6 +171,17 @@ function asCitations(value: unknown): AskCitation[] {
         entityName: row.entityName == null ? null : String(row.entityName),
       },
     ];
+  });
+}
+
+/** A passage search's passages as citations: the passage is the quote, and no entity is cited. */
+function passageCitations(value: unknown): unknown[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => {
+    const row = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    return { quote: row.text, documentId: row.documentId, documentName: row.documentName, entityId: null, entityName: null };
   });
 }
 

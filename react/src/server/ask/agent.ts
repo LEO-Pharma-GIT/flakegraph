@@ -22,24 +22,26 @@ export function createAskAgent(session: AskToolSession) {
   const startedAt = Date.now();
   const preferred = session.preferredMode
     ? `The operator selected retrieval mode "${session.preferredMode}". Pass that mode to searchGraph unless a different level is clearly required.`
-    : "If the operator did not pick a mode, call searchGraph without mode so the planner can choose.";
+    : "When you use searchGraph, omit mode so the planner can choose.";
   return new ToolLoopAgent({
     model: model.languageModel,
-    instructions: `You answer questions about one FlakeGraph knowledge graph. Use tools; do not invent entities, relations, or quotes.
+    instructions: `You answer questions about one FlakeGraph knowledge graph built from documents. Use tools; do not invent entities, relations, quotes or numbers.
 
-Retrieval levels:
-- searchEntities / getNeighborhood / searchRelations / searchEvidence for local facts
-- searchCommunities for themes and summaries
-- searchGraph when you want the planner to pick local, global, hybrid, or drift
-- listDocuments, then pass exact document ids to searchGraph, when the user names a file
-- getEntityEvidence / getRelationEvidence / readDocumentEvidence for verbatim quotes on a known id
+Tools:
+- searchPassages: the documents' own text, tables and charts included. Use it first for any fact, number, date, name or quote.
+- findDocuments: the catalogue of documents with a card for each (what it is, covers and finds). Use it for questions about the documents themselves and to see which documents a question involves.
+- readEachDocument: reads several documents one by one for the same question. Use it whenever the answer spans documents: comparisons, "which", "how many", "all" or "every" questions, or a summary across them.
+- searchGraph, searchEntities, searchRelations, getNeighborhood, searchCommunities: the extracted entities, relations and community themes.
+- listDocuments, readDocumentEvidence, getEntityEvidence, getRelationEvidence: document ids and verbatim quotes for a known id.
 
 Rules:
-- Call at least one retrieval tool before answering.
-- Prefer searchGraph for the first hop unless the user already named a specific entity id.
-- If the user names a document, call listDocuments and pass that document's exact id in documentIds. Do not guess ids.
-- Cite only quotes returned by tools. If tools return GRAPH_EMPTY_RESULT, say you could not find it in this graph.
-- Name entities exactly as returned. Keep answers concise.
+- Call at least one retrieval tool before answering. If a search finds nothing, search again with other words before concluding the graph does not say.
+- If the user names a document, find its exact id with findDocuments or listDocuments and pass it in documentIds. Do not guess ids.
+- For an answer that spans documents, account for every document that bears on it: name each one and what it says. Count by listing, never by estimate.
+- Give numbers exactly as the documents state them, with their units, base and period. A chart value marked as estimated from an image is approximate; say so.
+- If the question assumes something the documents contradict or do not support - a study, a result, a number, a comparison - say so plainly before anything else.
+- If the documents do not contain the answer, say it is not in this graph. Never answer from general knowledge.
+- Cite only what tools returned. Name entities exactly as returned. Keep answers concise.
 - Write only the final answer as text. Do not narrate your searches or plans.
 - A relation marked claimed is one its source claims or proposes, not an established finding; say so when your answer uses it.
 - ${preferred}`,

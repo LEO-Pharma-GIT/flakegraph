@@ -48,6 +48,9 @@ export function renderForModel(output: unknown): string {
     const names = documentNames(citations);
     return names.length > 0 ? `${row.text}\n\n## Documents\n${names.join("\n")}` : row.text;
   }
+  if (Array.isArray(row.passages)) {
+    return renderPassages(row.passages as ModelPassage[]);
+  }
   if (Array.isArray(row.documents)) {
     return (row.documents as Array<{ id: string; title: string; quoteCount: number }>)
       .map((document) => `- ${document.id}: ${document.title} (${document.quoteCount} quotes)`)
@@ -65,6 +68,38 @@ interface ModelCitation {
   documentName?: string;
   entityId?: string | null;
   entityName?: string | null;
+}
+
+interface ModelPassage {
+  documentId: string;
+  documentName?: string;
+  pageNumber?: number | null;
+  sectionPath?: string[];
+  text: string;
+  contains?: string[];
+}
+
+/**
+ * Passages grouped by document, in the order the search ranked them: a
+ * heading per document naming it and its id, then each passage under its
+ * page and section, which is what a citation needs and nothing it does not.
+ */
+function renderPassages(passages: ModelPassage[]): string {
+  const byDocument = Map.groupBy(passages, (passage) => passage.documentId);
+  return [...byDocument]
+    .map(([documentId, rows]) => {
+      const heading = `## ${rows[0]?.documentName ?? "Document"} (${documentId})`;
+      const entries = rows.map((row) => {
+        const place = [
+          row.pageNumber != null ? `[p${row.pageNumber}]` : "",
+          row.sectionPath?.length ? row.sectionPath.join(" > ") : "",
+          row.contains?.length ? `(${row.contains.join(", ")})` : "",
+        ].filter(Boolean);
+        return place.length > 0 ? `${place.join(" ")}\n${row.text}` : row.text;
+      });
+      return [heading, ...entries].join("\n\n");
+    })
+    .join("\n\n");
 }
 
 function documentNames(citations: ModelCitation[]): string[] {

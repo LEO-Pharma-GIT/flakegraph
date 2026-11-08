@@ -259,6 +259,8 @@ Every variable the console reads. Booleans accept `1`, `true`, `yes`, `on`.
 | `FLAKEGRAPH_ASK_OLLAMA_MODEL` | `qwen3:4b-instruct` | The Ollama model. |
 | `FLAKEGRAPH_ASK_DISABLE_OLLAMA` | off | Never probe or use Ollama. |
 | `FLAKEGRAPH_ASK_STRUCTURED_REASONING` | `none` | `reasoning_effort` for planning, scoring, follow-ups and type suggestions: `none` … `high`, or `inherit`. |
+| `FLAKEGRAPH_ASK_EMBEDDING_MODEL` | none | The model that embeds a question for dense passage search, fused with BM25. Used only when the graph records the same embedding model (`embedding.model` in `graph_metrics.json` or `run_report.json`) and the vector widths match; otherwise passage search is BM25 alone, said once in the log. |
+| `FLAKEGRAPH_ASK_EMBEDDING_BASE_URL`, `FLAKEGRAPH_ASK_EMBEDDING_API_KEY` | the Ask model's | An OpenAI-compatible or Azure `/embeddings` endpoint of its own. The Ask model's key is never sent to a different endpoint. |
 
 Ask searches the complete published graph on the server. Browser review limits
 only bound explorer payloads; they do not limit entity, relation, community or

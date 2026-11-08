@@ -88,6 +88,36 @@ export const ASK_STREAM_TIMEOUT_MS = 20 * 60_000;
 // and its caller takes a long answer for a dead connection.
 export const ASK_HEARTBEAT_MS = 15_000;
 
+// The shortest search term kept, unless it holds a digit: one letter on its
+// own is an initial, a list marker or what an apostrophe leaves behind
+// ("company's"), while two letters are often a code that matters ("EU", "UK").
+export const MIN_TOKEN_LENGTH = 2;
+// Plural folding leaves short words alone ("bus", "gas").
+export const MIN_PLURAL_LENGTH = 4;
+// What a matched term adds to a keyword score beyond its count: the old
+// scorer's bonus for a whole-word match, which every match now is.
+export const MATCHED_TERM_BONUS = 2;
+
+// Okapi BM25 term-frequency saturation and length normalisation, at the
+// values the literature and most search engines settle on (Robertson et al.).
+export const BM25_K1 = 1.2;
+export const BM25_B = 0.75;
+
+// Passage search: how many passages a call returns by default, how deep each
+// ranking is read before fusion (enough that a passage one method ranks 80th
+// can still surface when the other ranks it highly), and how much of a
+// neighbouring chunk an expanded passage carries on each side. At about 800
+// characters a chunk, the default stays well inside one tool's text budget
+// even when every passage is expanded.
+export const PASSAGE_DEFAULT_TOP_K = 12;
+export const PASSAGE_FUSION_DEPTH = 100;
+export const PASSAGE_NEIGHBOUR_CHAR_LIMIT = 400;
+export const PASSAGE_CHAR_LIMIT = 4_000;
+
+// The query embedding is one short request; a slow endpoint must cost a
+// question a moment, not its answer, so past this it is searched lexically.
+export const ASK_EMBEDDING_TIMEOUT_MS = 5_000;
+
 export const DEFAULT_AZURE_API_VERSION = "2024-12-01-preview";
 export const DEFAULT_AZURE_DEPLOYMENT = "gpt-4.1-mini-2025-04-14";
 export const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434/v1";
