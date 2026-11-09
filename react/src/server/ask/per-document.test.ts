@@ -46,7 +46,15 @@ vi.mock("./model", async (importOriginal) => {
   return { ...original, resolveAskModel: () => scriptedModel() };
 });
 
-const { documentContext, readEachDocument, renderFindings } = await import("./per-document");
+const {
+  PER_DOCUMENT_MAX_PASSAGES,
+  PER_DOCUMENT_MIN_PASSAGES,
+  documentContext,
+  documentContextLimit,
+  passagesPerDocument,
+  readEachDocument,
+  renderFindings,
+} = await import("./per-document");
 
 const source = (id: string, name: string, text: string, group: string | null = null) => ({
   documentId: id,
@@ -120,6 +128,16 @@ describe("renderFindings", () => {
     expect(text).toContain("Could not be read: Broken report");
   });
 
+  it("names the documents the card screen left out, so the agent can still read them", () => {
+    const text = renderFindings([finding("doc_a", "Orchard trial", null)], {
+      screened: 14,
+      dropped: ["Soil survey", "Rainfall atlas"],
+    });
+
+    expect(text.split("\n")[0]).toContain("Screened 14 documents by their cards: 2 are about something else. Read 1 documents");
+    expect(text).toContain("Not read, their cards show another subject: Soil survey; Rainfall atlas.");
+  });
+
   it("groups documents that share a folder and counts the folders", () => {
     const text = renderFindings([
       finding("doc_a", "Wave 1 report", "study-17"),
@@ -153,5 +171,15 @@ describe("documentContext", () => {
     expect(context.startsWith("Document: Trial\n\nCard:\nTitle: Trial\n\n[p1]\nFirst passage.")).toBe(true);
     expect(context.length).toBeLessThanOrEqual(1_002);
     expect(context).toContain("[p2] Results");
+  });
+});
+
+describe("passagesPerDocument", () => {
+  it("reads a short list deeply and a long one from fewer passages each", () => {
+    expect(passagesPerDocument(5)).toBe(PER_DOCUMENT_MAX_PASSAGES);
+    expect(passagesPerDocument(64)).toBe(PER_DOCUMENT_MIN_PASSAGES);
+    expect(passagesPerDocument(30)).toBeGreaterThan(PER_DOCUMENT_MIN_PASSAGES);
+    expect(passagesPerDocument(30)).toBeLessThan(PER_DOCUMENT_MAX_PASSAGES);
+    expect(documentContextLimit(PER_DOCUMENT_MAX_PASSAGES)).toBeGreaterThan(documentContextLimit(PER_DOCUMENT_MIN_PASSAGES));
   });
 });

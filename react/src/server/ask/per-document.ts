@@ -12,6 +12,8 @@ import { resolveAskModel } from "./model";
  * summarises a few of them as if they were all. Here every candidate document
  * is read separately, with its own passages and catalogue card, by parallel
  * calls, and reports what it says on the question or that it says nothing.
+ * Which documents those are, when the collection is large, the card screen
+ * (screening.ts) decides first.
  * The agent then writes one answer that has to account for each of them.
  */
 
@@ -24,10 +26,21 @@ export const PER_DOCUMENT_MAX_DOCUMENTS = 64;
  * what a serving fleet admits at once.
  */
 export const PER_DOCUMENT_CONCURRENCY = 16;
-/** Passages each document is read from. */
-export const PER_DOCUMENT_PASSAGES = 10;
-/** How much of one document's passages and card a call reads. */
-export const PER_DOCUMENT_CONTEXT_CHAR_LIMIT = 14_000;
+/**
+ * Passages each document is read from. A document read from too few can look
+ * silent when the part that matters is not among them, so a short list - what
+ * is left after the card screen - is read deeply, and a long one from fewer
+ * passages each, to keep the prefill of one question bounded.
+ */
+export const PER_DOCUMENT_MIN_PASSAGES = 10;
+export const PER_DOCUMENT_MAX_PASSAGES = 24;
+/** Passages one question reads across all its documents, before the minimum applies. */
+export const PER_DOCUMENT_PASSAGE_BUDGET = 480;
+/** Room per passage, and for the card, in one call's context. */
+const PER_DOCUMENT_CHARS_PER_PASSAGE = 1_300;
+const PER_DOCUMENT_CARD_CHARS = 3_500;
+/** How much of one document's passages and card a call reads, at the fewest passages. */
+export const PER_DOCUMENT_CONTEXT_CHAR_LIMIT = documentContextLimit(PER_DOCUMENT_MIN_PASSAGES);
 export const PER_DOCUMENT_MAX_OUTPUT_TOKENS = 1_600;
 export const PER_DOCUMENT_CALL_TIMEOUT_MS = 90_000;
 const MAX_FACTS = 10;
@@ -103,6 +116,17 @@ const SYSTEM = `You read one document for one question and report only what that
 - premise_issues: the question may take things for granted (listed as assumptions). For each assumption this document is about, say if the document contradicts it, or does not support it where it is the document that should state it, and why in one sentence. Leave it empty when the document agrees or does not concern the assumption.
 - Use only the card and passages given. Never use outside knowledge, and never infer what the document does not say.`;
 
+/** Passages to read from each of `documents` documents. */
+export function passagesPerDocument(documents: number): number {
+  const share = Math.floor(PER_DOCUMENT_PASSAGE_BUDGET / Math.max(1, documents));
+  return Math.max(PER_DOCUMENT_MIN_PASSAGES, Math.min(PER_DOCUMENT_MAX_PASSAGES, share));
+}
+
+/** The context bound of a call that reads `passages` passages and a card. */
+export function documentContextLimit(passages: number): number {
+  return PER_DOCUMENT_CARD_CHARS + passages * PER_DOCUMENT_CHARS_PER_PASSAGE;
+}
+
 /** Render one document's card and passages within the context bound. */
 export function documentContext(source: PerDocumentSource, limit = PER_DOCUMENT_CONTEXT_CHAR_LIMIT): string {
   const parts: string[] = [`Document: ${source.documentName}`];
@@ -140,6 +164,8 @@ export async function readEachDocument(
     onProgress?: (done: number, total: number) => void;
     /** What the question takes for granted, checked against each document. */
     assumptions?: readonly string[];
+    /** How much of each document's card and passages a call reads. */
+    contextLimit?: number;
   } = {},
 ): Promise<DocumentFinding[]> {
   const model = resolveAskModel();
@@ -153,7 +179,7 @@ export async function readEachDocument(
     while (next < sources.length) {
       const index = next++;
       const source = sources[index]!;
-      results[index] = await readOne(question, source, model, options.signal, options.assumptions ?? []);
+      results[index] = await readOne(question, source, model, options.signal, options.assumptions ?? [], options.contextLimit);
       done += 1;
       options.onProgress?.(done, sources.length);
     }
@@ -169,6 +195,7 @@ async function readOne(
   model: NonNullable<ReturnType<typeof resolveAskModel>>,
   signal: AbortSignal | undefined,
   assumptions: readonly string[],
+  contextLimit = PER_DOCUMENT_CONTEXT_CHAR_LIMIT,
 ): Promise<DocumentFinding> {
   const base = { documentId: source.documentId, documentName: source.documentName, group: source.group };
   if (!source.card && source.passages.length === 0) {
@@ -187,7 +214,7 @@ async function readOne(
       prompt: [
         `Question: ${question}`,
         assumptions.length ? `Assumptions of the question:\n${assumptions.map((item) => `- ${item}`).join("\n")}` : "",
-        documentContext(source),
+        documentContext(source, contextLimit),
       ]
         .filter(Boolean)
         .join("\n\n"),
@@ -217,7 +244,10 @@ async function readOne(
  * case, and a count of those is a count of folders, not files - and each fact
  * carries the document's own words, so numbers are not carried from memory.
  */
-export function renderFindings(findings: DocumentFinding[]): string {
+export function renderFindings(
+  findings: DocumentFinding[],
+  screen: { screened: number; dropped: readonly string[] } | null = null,
+): string {
   const relevant = findings.filter((finding) => finding.relevant);
   const unread = findings.filter((finding) => finding.failure);
   const silent = findings.filter((finding) => !finding.relevant && !finding.failure);
@@ -228,7 +258,10 @@ export function renderFindings(findings: DocumentFinding[]): string {
   }
   const grouped = [...groups.values()].some((members) => members.length > 1);
   const lines: string[] = [
-    `Read ${findings.length} documents one by one: ${relevant.length} bear on the question` +
+    (screen?.dropped.length
+      ? `Screened ${screen.screened} documents by their cards: ${screen.dropped.length} are about something else. `
+      : "") +
+      `Read ${findings.length} documents one by one: ${relevant.length} bear on the question` +
       (grouped ? `, in ${groups.size} folders` : "") +
       `, ${silent.length} do not${unread.length ? `, ${unread.length} could not be read` : ""}. ` +
       "Every document that bears on it is listed below; answer from these findings and account for each.",
@@ -260,6 +293,13 @@ export function renderFindings(findings: DocumentFinding[]): string {
   }
   if (unread.length) {
     lines.push("", `Could not be read: ${unread.map((finding) => finding.documentName).join("; ")}`);
+  }
+  if (screen?.dropped.length) {
+    lines.push(
+      "",
+      `Not read, their cards show another subject: ${screen.dropped.join("; ")}. ` +
+        "Read any of them by documentId if the findings above suggest it bears on the question after all.",
+    );
   }
   return lines.join("\n");
 }
