@@ -22,6 +22,8 @@ export interface CatalogueCard {
   documentId: string;
   name: string;
   location: string;
+  /** The folder the document sits in, when the graph records one. */
+  folder: string | null;
   card: string | null;
 }
 
@@ -49,6 +51,7 @@ function catalogue(dataset: GraphDataset): Catalogue {
       documentId: asString(row.id ?? row.file_id),
       name: documentDisplayName(row),
       location: asString(row.folder) || source,
+      folder: asString(row.folder).trim() || null,
       card: summary || null,
     };
   });

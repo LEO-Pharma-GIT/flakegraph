@@ -131,10 +131,11 @@ describe("a question that never stops searching", () => {
     const result = await agent.generate({ prompt: "Which agency ran it?" });
 
     expect(result.text).toBe("From what was found.");
-    expect(calls).toHaveLength(8);
+    // One call classifies the question, then one per step.
+    expect(calls).toHaveLength(9);
     expect(calls.at(-1)?.toolChoice).toEqual({ type: "none" });
     expect(calls.at(-1)?.prompt.at(-1)).toMatchObject({ role: "user" });
     expect(calls.at(-2)?.toolChoice).not.toEqual({ type: "none" });
-    expect(calls[0]?.maxOutputTokens).toBeGreaterThan(0);
+    expect(calls[1]?.maxOutputTokens).toBeGreaterThan(0);
   });
 });

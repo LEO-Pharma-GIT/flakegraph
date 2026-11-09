@@ -28,11 +28,13 @@ export const PER_DOCUMENT_CONCURRENCY = 16;
 export const PER_DOCUMENT_PASSAGES = 10;
 /** How much of one document's passages and card a call reads. */
 export const PER_DOCUMENT_CONTEXT_CHAR_LIMIT = 14_000;
-export const PER_DOCUMENT_MAX_OUTPUT_TOKENS = 1_200;
+export const PER_DOCUMENT_MAX_OUTPUT_TOKENS = 1_600;
 export const PER_DOCUMENT_CALL_TIMEOUT_MS = 90_000;
-const MAX_FACTS = 8;
+const MAX_FACTS = 10;
 const MAX_FACT_CHARACTERS = 400;
+const MAX_QUOTE_CHARACTERS = 300;
 const MAX_ANSWER_CHARACTERS = 900;
+const MAX_ISSUES = 5;
 
 export interface DocumentPassage {
   page: number;
@@ -45,15 +47,27 @@ export interface PerDocumentSource {
   documentName: string;
   /** The document's catalogue card, when the graph has one. */
   card: string | null;
+  /** The folder the document sits in: documents of one folder are usually one study, project or case. */
+  group: string | null;
   passages: DocumentPassage[];
+}
+
+/** An assumption of the question that a document contradicts or leaves unsupported where it should state it. */
+export interface PremiseIssue {
+  assumption: string;
+  verdict: "contradicted" | "unsupported";
+  why: string;
 }
 
 export interface DocumentFinding {
   documentId: string;
   documentName: string;
+  group?: string | null;
   relevant: boolean;
   answer: string;
-  facts: { statement: string; page: number | null }[];
+  /** Each fact with the exact words of the document it rests on. */
+  facts: { statement: string; quote: string; page: number | null }[];
+  premiseIssues?: PremiseIssue[];
   /** Why the document could not be read, when it could not. */
   failure?: string;
 }
@@ -65,19 +79,29 @@ const FindingSchema = z.object({
     .array(
       z.object({
         statement: z.string().max(MAX_FACT_CHARACTERS),
+        quote: z.string().max(MAX_QUOTE_CHARACTERS),
         page: z.number().int().nullable(),
       }),
     )
     .max(MAX_FACTS),
+  premise_issues: z
+    .array(
+      z.object({
+        assumption: z.string().max(MAX_FACT_CHARACTERS),
+        verdict: z.enum(["contradicted", "unsupported"]),
+        why: z.string().max(MAX_FACT_CHARACTERS),
+      }),
+    )
+    .max(MAX_ISSUES),
 });
 
 const SYSTEM = `You read one document for one question and report only what that document states that bears on it.
 
 - relevant is true when the document says anything that answers or bears on the question, false when it says nothing about it.
-- answer is what this document says on the question, in one to three sentences, keeping its numbers, units, dates, places and qualifiers exactly as written. Leave it empty when relevant is false.
-- facts are the specific statements behind the answer, each with the page it is on (null when the page is not given).
-- Use only the card and passages given. Never use outside knowledge, and never infer what the document does not say.
-- If the question assumes something this document contradicts, say so in answer.`;
+- answer is what this document says on the question, in one to three sentences, keeping its numbers, units, dates, places, sample sizes and qualifiers exactly as written. Leave it empty when relevant is false.
+- facts are the specific statements behind the answer - each with quote, the exact words of the passage or card it rests on (copied, not paraphrased), and the page it is on (null when not given). Prefer facts with numbers, and give every number the document states on the question.
+- premise_issues: the question may take things for granted (listed as assumptions). For each assumption this document is about, say if the document contradicts it, or does not support it where it is the document that should state it, and why in one sentence. Leave it empty when the document agrees or does not concern the assumption.
+- Use only the card and passages given. Never use outside knowledge, and never infer what the document does not say.`;
 
 /** Render one document's card and passages within the context bound. */
 export function documentContext(source: PerDocumentSource, limit = PER_DOCUMENT_CONTEXT_CHAR_LIMIT): string {
@@ -110,7 +134,13 @@ export function documentContext(source: PerDocumentSource, limit = PER_DOCUMENT_
 export async function readEachDocument(
   question: string,
   sources: PerDocumentSource[],
-  options: { concurrency?: number; signal?: AbortSignal; onProgress?: (done: number, total: number) => void } = {},
+  options: {
+    concurrency?: number;
+    signal?: AbortSignal;
+    onProgress?: (done: number, total: number) => void;
+    /** What the question takes for granted, checked against each document. */
+    assumptions?: readonly string[];
+  } = {},
 ): Promise<DocumentFinding[]> {
   const model = resolveAskModel();
   if (!model) {
@@ -123,7 +153,7 @@ export async function readEachDocument(
     while (next < sources.length) {
       const index = next++;
       const source = sources[index]!;
-      results[index] = await readOne(question, source, model, options.signal);
+      results[index] = await readOne(question, source, model, options.signal, options.assumptions ?? []);
       done += 1;
       options.onProgress?.(done, sources.length);
     }
@@ -138,8 +168,9 @@ async function readOne(
   source: PerDocumentSource,
   model: NonNullable<ReturnType<typeof resolveAskModel>>,
   signal: AbortSignal | undefined,
+  assumptions: readonly string[],
 ): Promise<DocumentFinding> {
-  const base = { documentId: source.documentId, documentName: source.documentName };
+  const base = { documentId: source.documentId, documentName: source.documentName, group: source.group };
   if (!source.card && source.passages.length === 0) {
     return { ...base, relevant: false, answer: "", facts: [] };
   }
@@ -153,7 +184,13 @@ async function readOne(
       maxOutputTokens: PER_DOCUMENT_MAX_OUTPUT_TOKENS,
       abortSignal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       instructions: SYSTEM,
-      prompt: `Question: ${question}\n\n${documentContext(source)}`,
+      prompt: [
+        `Question: ${question}`,
+        assumptions.length ? `Assumptions of the question:\n${assumptions.map((item) => `- ${item}`).join("\n")}` : "",
+        documentContext(source),
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
     });
     const output = result.output;
     if (!output) {
@@ -164,24 +201,58 @@ async function readOne(
       relevant: output.relevant,
       answer: output.relevant ? output.answer.trim() : "",
       facts: output.relevant ? output.facts.filter((fact) => fact.statement.trim()) : [],
+      premiseIssues: output.premise_issues.filter((issue) => issue.assumption.trim()),
     };
   } catch (error) {
     return { ...base, relevant: false, answer: "", facts: [], failure: errorMessage(error) };
   }
 }
 
-/** Findings as the agent reads them: relevant documents first, then the rest by name. */
+/**
+ * Findings as the agent reads them.
+ *
+ * Problems with the question's assumptions come first, because an answer must
+ * open with them. Relevant documents follow, grouped by the folder they sit in
+ * when several share one - such documents are usually one study, project or
+ * case, and a count of those is a count of folders, not files - and each fact
+ * carries the document's own words, so numbers are not carried from memory.
+ */
 export function renderFindings(findings: DocumentFinding[]): string {
   const relevant = findings.filter((finding) => finding.relevant);
   const unread = findings.filter((finding) => finding.failure);
   const silent = findings.filter((finding) => !finding.relevant && !finding.failure);
-  const lines: string[] = [
-    `Read ${findings.length} documents one by one: ${relevant.length} bear on the question, ${silent.length} do not${unread.length ? `, ${unread.length} could not be read` : ""}.`,
-  ];
+  const groups = new Map<string, DocumentFinding[]>();
   for (const finding of relevant) {
-    lines.push("", `## ${finding.documentName} (${finding.documentId})`, finding.answer);
-    for (const fact of finding.facts) {
-      lines.push(`- ${fact.page != null ? `[p${fact.page}] ` : ""}${fact.statement}`);
+    const key = finding.group?.trim() || finding.documentName;
+    groups.set(key, [...(groups.get(key) ?? []), finding]);
+  }
+  const grouped = [...groups.values()].some((members) => members.length > 1);
+  const lines: string[] = [
+    `Read ${findings.length} documents one by one: ${relevant.length} bear on the question` +
+      (grouped ? `, in ${groups.size} folders` : "") +
+      `, ${silent.length} do not${unread.length ? `, ${unread.length} could not be read` : ""}. ` +
+      "Every document that bears on it is listed below; answer from these findings and account for each.",
+  ];
+  const issues = findings.flatMap((finding) =>
+    (finding.premiseIssues ?? []).map((issue) => ({ ...issue, documentName: finding.documentName })),
+  );
+  if (issues.length) {
+    lines.push("", "## Problems with the question's assumptions - open the answer with these");
+    for (const issue of issues) {
+      lines.push(`- ${issue.verdict}: "${issue.assumption}" - ${issue.why} (${issue.documentName})`);
+    }
+  }
+  for (const [group, members] of groups) {
+    if (grouped) {
+      lines.push("", `## Folder: ${group} (${members.length} document${members.length === 1 ? "" : "s"})`);
+    }
+    for (const finding of members) {
+      lines.push("", `${grouped ? "###" : "##"} ${finding.documentName} (${finding.documentId})`, finding.answer);
+      for (const fact of finding.facts) {
+        const page = fact.page != null ? `[p${fact.page}] ` : "";
+        const quote = fact.quote.trim() ? ` - "${fact.quote.trim()}"` : "";
+        lines.push(`- ${page}${fact.statement}${quote}`);
+      }
     }
   }
   if (silent.length) {

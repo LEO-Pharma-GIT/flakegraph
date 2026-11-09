@@ -22,6 +22,7 @@ import { graphSearch } from "./graph-search";
 import { structuredObservation } from "./observations";
 import { searchPassages } from "./passages";
 import { findDocuments, renderCards } from "./catalogue";
+import type { QuestionScope } from "./question-scope";
 import {
   PER_DOCUMENT_MAX_DOCUMENTS,
   PER_DOCUMENT_PASSAGES,
@@ -43,8 +44,17 @@ import {
 import { intersectIds, scopeDataset } from "./scope";
 import type { AskScope, QueryMode, SearchProgressUpdate } from "./types";
 
+/**
+ * What the agent learned about the question before searching (question-scope.ts),
+ * filled in on its first step and read by the tools that need it.
+ */
+export interface AskQuestionContext {
+  scope?: QuestionScope;
+}
+
 export interface AskToolSession {
   dataset: GraphDataset;
+  question?: AskQuestionContext;
   scope?: AskScope;
   preferredMode?: QueryMode;
   defaultTopK?: number;
@@ -239,6 +249,7 @@ Use it whenever the answer spans documents: comparing them, listing or counting 
               documentId: card.documentId,
               documentName: card.name,
               card: card.card,
+              group: card.folder,
               passages: found.passages.map((passage) => ({
                 page: passage.pageNumber ?? 0,
                 sectionPath: passage.sectionPath,
@@ -249,6 +260,7 @@ Use it whenever the answer spans documents: comparing them, listing or counting 
         );
         const findings = await readEachDocument(question, sources, {
           signal: options?.abortSignal,
+          assumptions: session.question?.scope?.assumptions ?? [],
           onProgress: (done, total) =>
             session.onProgress?.({ phase: "searching_evidence", message: `Read ${done} of ${total} documents`, detail: question }),
         });
