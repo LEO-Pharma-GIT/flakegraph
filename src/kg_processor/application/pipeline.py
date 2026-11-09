@@ -1681,6 +1681,7 @@ class KgProcessorPipeline:
             min_bytes=ocr.figure_min_bytes,
             max_bytes=ocr.figure_max_bytes,
             repeat_limit=ocr.figure_repeat_limit,
+            repeat_min_pixels=ocr.figure_repeat_min_pixels,
             max_per_document=ocr.figure_max_per_document,
             max_side_px=ocr.figure_max_side_px,
             seed=self.settings.graph.deterministic_seed,
@@ -1697,6 +1698,7 @@ class KgProcessorPipeline:
             "min_bytes": ocr.figure_min_bytes,
             "max_bytes": ocr.figure_max_bytes,
             "repeat_limit": ocr.figure_repeat_limit,
+            "repeat_min_pixels": ocr.figure_repeat_min_pixels,
             "max_per_document": ocr.figure_max_per_document,
         }
 

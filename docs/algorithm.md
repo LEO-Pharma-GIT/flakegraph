@@ -568,7 +568,7 @@ shows. Pictures are chosen first. One in a format no image model decodes (a
 vector metafile, SVG), one smaller than `ocr.figure_min_side_px` or
 `ocr.figure_min_bytes`, one larger than `ocr.figure_max_bytes`, one on
 `ocr.figure_repeat_limit` or more pages of the document (its template: a logo,
-a footer band), and a repeat of bytes already chosen are skipped, and at most
+a footer band) unless it is at least `ocr.figure_repeat_min_pixels` large, and a repeat of bytes already chosen are skipped, and at most
 `ocr.figure_max_per_document` are read. Each is scaled to
 `ocr.figure_max_side_px` on its longest side and sent once; a reading is cached
 by the picture's bytes, so a logo in every file is read once. A document's pictures are read `ocr.figure_parallelism` at a time, and a call that has not answered within `ocr.figure_timeout_seconds` is given up; neither changes which workers may claim a run. What a picture
@@ -577,7 +577,7 @@ and legible text, and any chart or table in it as chart and table blocks
 marked `source: vision`. A chart read from a picture says that its values were
 estimated from an image. A decoration adds nothing. The document's OCR
 metadata records how many pictures were read, cached, failed, and skipped and
-why. A picture that cannot be read never fails its document.
+why. A picture that cannot be read never fails its document. When the fallback parser takes a document's text from its secondary parser, the primary's pictures are kept for reading, as long as both paged the document alike.
 
 ## Document Cards
 

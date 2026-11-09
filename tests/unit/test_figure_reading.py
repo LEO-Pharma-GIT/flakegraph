@@ -246,3 +246,19 @@ def test_a_table_read_from_a_picture_is_a_table_block() -> None:
     table = next(block for block in updated.pages[0].blocks if block.kind == "table")
     assert table.metadata["table"]["source"] == "vision"
     assert "| Widget | 3.50 |" in table.text
+
+
+def test_a_large_picture_that_repeats_is_read_once_on_its_first_page() -> None:
+    """A page-sized picture shown again is content, not template."""
+
+    document = _document(
+        [
+            _asset("form1", 1, "f", width_px=1920, height_px=1080),
+            _asset("form2", 2, "f", width_px=1920, height_px=1080),
+            _asset("form3", 3, "f", width_px=1920, height_px=1080),
+        ]
+    )
+    chosen, skipped = figure_candidates(document, _policy())
+
+    assert [asset.id for asset in chosen] == ["form1"]
+    assert skipped == {"duplicate": 2}

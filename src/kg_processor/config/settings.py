@@ -314,6 +314,9 @@ class OcrSettings(_SettingsModel):
     # A picture on this many pages of one document is its template - a logo,
     # a footer band - and says nothing a page needs.
     figure_repeat_limit: int = Field(default=3, ge=2)
+    # A repeated picture this large (in pixels) is content rather than
+    # template - a form or a mock-up shown again - and is read once.
+    figure_repeat_min_pixels: int = Field(default=1_000_000, gt=0)
     figure_max_per_document: int = Field(default=200, ge=0)
     # Pictures are scaled down to this longest side before they are sent: a
     # model's image tokens grow with the pixels, its reading barely does.

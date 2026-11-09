@@ -105,6 +105,7 @@ class FigurePolicy:
     max_side_px: int
     seed: int
     parallelism: int = 1
+    repeat_min_pixels: int = 1_000_000
 
     def fingerprint(self) -> dict[str, object]:
         """What decides a picture's reading, for cache keys."""
@@ -236,10 +237,27 @@ def _skip_reason(
             width is not None and height is not None and min(width, height) < policy.min_side_px,
             "too_small",
         ),
-        (bool(digest) and len(pages_by_digest.get(digest, ())) >= policy.repeat_limit, "repeated"),
+        (
+            bool(digest)
+            and len(pages_by_digest.get(digest, ())) >= policy.repeat_limit
+            and not _large(width, height, policy),
+            "repeated",
+        ),
         (bool(digest) and digest in seen, "duplicate"),
     )
     return next((reason for failed, reason in checks if failed), None)
+
+
+def _large(width: int | None, height: int | None, policy: FigurePolicy) -> bool:
+    """Whether a picture is big enough to carry content even when it repeats.
+
+    A logo or a footer band repeats on every page and is small; a picture as
+    large as a page that repeats - a form, a mock-up, a screenshot shown again
+    with annotations - still says something, and it is read once, on its first
+    page, like any duplicate.
+    """
+
+    return width is not None and height is not None and width * height >= policy.repeat_min_pixels
 
 
 def read_figures(  # noqa: PLR0913 - one document's reading context.

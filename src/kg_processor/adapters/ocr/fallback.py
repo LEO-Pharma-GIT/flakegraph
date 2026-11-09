@@ -188,15 +188,18 @@ class FallbackOcrProvider:
             "interleaved_column_page_ratio": interleaved_column_page_ratio,
         }
         try:
-            return self._secondary(
-                file,
-                options,
-                reason=(
-                    "primary_text_insufficient"
-                    if not density_sufficient
-                    else "primary_text_malformed"
+            return _with_primary_pictures(
+                self._secondary(
+                    file,
+                    options,
+                    reason=(
+                        "primary_text_insufficient"
+                        if not density_sufficient
+                        else "primary_text_malformed"
+                    ),
+                    **details,
                 ),
-                **details,
+                primary,
             )
         except NoTextReadError:
             # The primary read the file to the end and found nothing, and so
@@ -385,3 +388,28 @@ def _is_latin_letter(character: str) -> bool:
     """Whether a letter belongs to the Latin script, with or without accents."""
 
     return character.isascii() or unicodedata.name(character, "").startswith("LATIN ")
+
+
+def _with_primary_pictures(parsed: ParsedDocument, primary: ParsedDocument) -> ParsedDocument:
+    """Keep the pictures the primary found when the secondary's text is used instead.
+
+    A parser that reads pixels returns text and seldom the pictures themselves
+    in a form that can be read again later, so a document routed to it would
+    lose every picture worth reading. The primary's pictures are carried over
+    when both parsers paged the document alike - a slide deck read slide by
+    slide - so each picture's reading lands on the page it came from; when the
+    pages differ, a picture's page would point at the wrong text, and none is
+    carried.
+    """
+
+    pictures = [asset for asset in primary.assets if asset.kind == "image"]
+    if not pictures or len(primary.pages) != len(parsed.pages):
+        return parsed
+    known = {asset.id for asset in parsed.assets}
+    carried = [asset for asset in pictures if asset.id not in known]
+    if not carried:
+        return parsed
+    metadata = {**parsed.provider_metadata, "pictures_from_primary": len(carried)}
+    return parsed.model_copy(
+        update={"assets": [*parsed.assets, *carried], "provider_metadata": metadata}
+    )

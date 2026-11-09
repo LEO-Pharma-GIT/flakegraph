@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from kg_processor.adapters.ocr.fallback import FallbackOcrProvider
-from kg_processor.domain.documents import InputFile, ParsedDocument, ParsedPage
+from kg_processor.domain.documents import InputFile, ParsedAsset, ParsedDocument, ParsedPage
 from kg_processor.ports.ocr import NoTextReadError, OcrOptions, OcrProvider
 
 
@@ -534,3 +534,29 @@ def test_fallback_routes_a_pdf_whose_text_layer_interleaves_two_columns(tmp_path
     routing = result.provider_metadata["fallback_ocr"]
     assert routing["reason"] == "primary_text_malformed"
     assert routing["interleaved_column_page_ratio"] == 0.8
+
+
+def _with_picture(document: ParsedDocument, page: int) -> ParsedDocument:
+    picture = ParsedAsset(id=f"asset_{page}", kind="image", page_number=page, metadata={})
+    return document.model_copy(update={"assets": [*document.assets, picture]})
+
+
+def test_the_secondary_text_keeps_the_pictures_the_primary_found(tmp_path: Path) -> None:
+    """Pictures stay readable when a page-alike secondary parser supplies the text."""
+
+    primary = _StubOcr(_with_picture(_document("scan", "scan", provider="builtin_text"), 2))
+    secondary = _StubOcr(_document("recognized", "text", provider="mineru_internal"))
+    result = _provider(primary, secondary, minimum=80).parse(_file(tmp_path), OcrOptions())
+
+    assert [asset.id for asset in result.assets] == ["asset_2"]
+    assert result.provider_metadata["pictures_from_primary"] == 1
+
+
+def test_pictures_are_not_carried_when_the_parsers_page_differently(tmp_path: Path) -> None:
+    """A picture's page would point at the wrong text, so none is carried."""
+
+    primary = _StubOcr(_with_picture(_document("scan", "scan", provider="builtin_text"), 2))
+    secondary = _StubOcr(_document("recognized text", provider="mineru_internal"))
+    result = _provider(primary, secondary, minimum=80).parse(_file(tmp_path), OcrOptions())
+
+    assert result.assets == []
