@@ -595,13 +595,15 @@ without one.
 Ask reads the cards to answer questions about the documents themselves, and
 to choose what a question spanning many documents reads. When it picks the
 documents itself and there are at least twelve, short calls over batches of
-ten cards first drop the documents whose cards show another subject; a
-document is kept when its card leaves the question open, when it has no card,
-when its call fails, or when it holds one of the question's twenty best
-passages. Each kept document is then read on its own, from up to 24 of its
+eight documents first drop those about something else, judged from each one's
+card and the three of its passages that best match the question, since a card
+can leave out what a question turns on; a document is kept when its card or
+passages leave the question open, when it has no card, when its call fails, or
+when it holds one of the question's twenty best passages. Each kept document is then read on its own, from up to 24 of its
 passages for a short list and from fewer, down to ten, for a long one, so one
 question's reading stays bounded. The answer is told which documents were
-screened out, and can still read any of them.
+screened out, that this does not show they say nothing, and that it must read
+one before saying anything about it.
 
 ## Corpus Finalization
 

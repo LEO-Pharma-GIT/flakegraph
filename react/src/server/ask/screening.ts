@@ -11,21 +11,27 @@ import { resolveAskModel } from "./model";
  * Reading every document of a collection one by one finds what each says, but
  * a document read from a handful of passages can still look silent when the
  * part that matters is not among them; reading all of them deeply costs a long
- * prefill per document. A card says what a document is, covers and finds, so a
- * few short calls over batches of cards settle which documents could bear on
- * the question, and only those are read - each from many more passages.
+ * prefill per document. A card says what a document is, covers and finds, and
+ * the few passages of a document that best match the question show what its
+ * card may leave out - a country, a group of people asked, a product used
+ * alongside. A few short calls over batches of cards and those passages settle
+ * which documents could bear on the question, and only those are read, each
+ * from many more passages.
  *
- * The screen keeps what it is unsure of: a document is dropped only when its
- * card shows it is about something else. A batch that fails keeps all of its
+ * The screen keeps what it is unsure of: a document is dropped only when
+ * neither its card nor its passages touch the question. A batch that fails keeps all of its
  * documents, and a document without a card is always read.
  */
 
 /** Fewer candidates than this are read without a screen: it would save little. */
 export const SCREEN_MIN_DOCUMENTS = 12;
-/** Cards one call judges. */
-export const SCREEN_BATCH_SIZE = 10;
+/** Documents one call judges. */
+export const SCREEN_BATCH_SIZE = 8;
 /** How much of one card the screen reads. */
 export const SCREEN_CARD_CHAR_LIMIT = 3_200;
+/** Passages of each document, best match first, the screen reads beside its card. */
+export const SCREEN_PASSAGES_PER_DOCUMENT = 3;
+const SCREEN_PASSAGE_CHAR_LIMIT = 600;
 export const SCREEN_CONCURRENCY = 8;
 export const SCREEN_CALL_TIMEOUT_MS = 60_000;
 const SCREEN_MAX_OUTPUT_TOKENS = 600;
@@ -36,7 +42,7 @@ export type ScreenVerdict = (typeof SCREEN_VERDICTS)[number];
 export interface ScreenResult {
   /** The documents to read, in the order given. */
   kept: CatalogueCard[];
-  /** The documents whose cards show they are about something else. */
+  /** The documents whose cards and passages show they are about something else. */
   dropped: CatalogueCard[];
   /** Batches whose call failed; their documents are kept. */
   failedBatches: number;
@@ -48,17 +54,22 @@ const VerdictSchema = z.object({
     .max(SCREEN_BATCH_SIZE * 2),
 });
 
-const SYSTEM = `You decide, from catalogue cards, which documents could say something on one question. Each card gives a document's title, type, subject, period, places, organizations, topics, method and key findings; it is a summary, so a document can cover more than its card names.
+const SYSTEM = `You decide which documents could say something on one question. Each numbered document comes with its catalogue card - title, type, subject, period, places, organizations, topics, method and key findings - and the few passages of it that best match the question. A card is a summary: a document often covers more than its card names, and its passages show some of that.
 
 For each numbered document give one verdict:
-- bears: the card shows the document addresses the question.
-- may_bear: the card does not settle it, but the document's subject, products, places, people asked or methods are close enough that it could.
-- unrelated: the card shows the document is about something else entirely.
+- bears: the card or a passage shows the document addresses the question, or any part of it.
+- may_bear: neither settles it, but the document's subject, products, places, people asked or methods are close enough that it could.
+- unrelated: neither the card nor the passages touch what the question asks about.
 
 When unsure, answer may_bear. Judge every number given.`;
 
-/** Render a batch of cards, numbered from 1, for one call. */
-export function screenPrompt(question: string, cards: readonly CatalogueCard[], assumptions: readonly string[] = []): string {
+/** Render a batch of cards and their passages, numbered from 1, for one call. */
+export function screenPrompt(
+  question: string,
+  cards: readonly CatalogueCard[],
+  assumptions: readonly string[] = [],
+  passages: ReadonlyMap<string, readonly string[]> = new Map(),
+): string {
   const parts = [`Question: ${question}`];
   if (assumptions.length) {
     parts.push(`The question takes for granted:\n${assumptions.map((item) => `- ${item}`).join("\n")}`);
@@ -69,13 +80,20 @@ export function screenPrompt(question: string, cards: readonly CatalogueCard[], 
       lines.push(`Folder: ${card.folder}`);
     }
     lines.push((card.card ?? "").slice(0, SCREEN_CARD_CHAR_LIMIT));
+    const best = (passages.get(card.documentId) ?? []).slice(0, SCREEN_PASSAGES_PER_DOCUMENT);
+    if (best.length) {
+      lines.push(
+        "Passages that best match the question:",
+        ...best.map((text) => `- ${text.replace(/\s+/g, " ").trim().slice(0, SCREEN_PASSAGE_CHAR_LIMIT)}`),
+      );
+    }
     parts.push(lines.join("\n"));
   });
   return parts.join("\n\n");
 }
 
 /**
- * Screen the candidates of a question by their cards. Documents in
+ * Screen the candidates of a question by their cards and best passages. Documents in
  * `alwaysRead` - those holding the question's best passages, say - are kept
  * whatever their card shows, and so is every document without one.
  */
@@ -85,6 +103,8 @@ export async function screenDocuments(
   options: {
     assumptions?: readonly string[];
     alwaysRead?: ReadonlySet<string>;
+    /** Each document's passages that best match the question, best first. */
+    passages?: ReadonlyMap<string, readonly string[]>;
     signal?: AbortSignal;
   } = {},
 ): Promise<ScreenResult> {
@@ -129,7 +149,11 @@ async function judgeBatch(
   question: string,
   batch: readonly CatalogueCard[],
   model: NonNullable<ReturnType<typeof resolveAskModel>>,
-  options: { assumptions?: readonly string[]; signal?: AbortSignal },
+  options: {
+    assumptions?: readonly string[];
+    passages?: ReadonlyMap<string, readonly string[]>;
+    signal?: AbortSignal;
+  },
 ): Promise<Map<number, ScreenVerdict> | null> {
   const timeout = AbortSignal.timeout(SCREEN_CALL_TIMEOUT_MS);
   try {
@@ -141,7 +165,7 @@ async function judgeBatch(
       maxOutputTokens: SCREEN_MAX_OUTPUT_TOKENS,
       abortSignal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
       instructions: SYSTEM,
-      prompt: screenPrompt(question, batch, options.assumptions),
+      prompt: screenPrompt(question, batch, options.assumptions, options.passages),
     });
     if (!result.output) {
       return null;

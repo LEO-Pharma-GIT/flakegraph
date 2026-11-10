@@ -60,7 +60,7 @@ const irrigation = (count: number) =>
   Array.from({ length: count }, (_, index) => card(`doc_${index}`, `Irrigation trial ${index}`));
 
 describe("screenDocuments", () => {
-  it("drops only documents whose cards show another subject, keeping the order given", async () => {
+  it("drops only documents judged about something else, keeping the order given", async () => {
     prompts.length = 0;
     const candidates = [
       ...irrigation(SCREEN_MIN_DOCUMENTS),
@@ -117,5 +117,11 @@ describe("screenPrompt", () => {
     ]);
     expect(prompt).toContain("[1] Orchard trial\nFolder: farms/2024\nOrchard trial card.");
     expect(prompt).toContain("[2] Soil survey\nSoil survey card.");
+  });
+
+  it("shows each document's best passages beside its card", () => {
+    const prompt = screenPrompt("Which trials irrigated?", [card("b", "Soil survey")], [], new Map([["b", ["Plots were\n  irrigated weekly.", "pH 6.", "third", "fourth"]]]));
+    expect(prompt).toContain("Soil survey card.\nPassages that best match the question:\n- Plots were irrigated weekly.\n- pH 6.\n- third");
+    expect(prompt).not.toContain("fourth");
   });
 });

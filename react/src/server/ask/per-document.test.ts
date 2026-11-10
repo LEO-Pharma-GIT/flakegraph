@@ -134,8 +134,9 @@ describe("renderFindings", () => {
       dropped: ["Soil survey", "Rainfall atlas"],
     });
 
-    expect(text.split("\n")[0]).toContain("Screened 14 documents by their cards: 2 are about something else. Read 1 documents");
-    expect(text).toContain("Not read, their cards show another subject: Soil survey; Rainfall atlas.");
+    expect(text.split("\n")[0]).toContain("Screened 14 documents by their cards and best passages: 2 look to be about something else and were not read. Read 1 documents");
+    expect(text).toContain("Not read: Soil survey; Rainfall atlas.");
+    expect(text).toContain("never state that one of them does not cover it");
   });
 
   it("groups documents that share a folder and counts the folders", () => {

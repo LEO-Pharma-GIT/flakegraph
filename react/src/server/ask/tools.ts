@@ -31,7 +31,7 @@ import {
   renderFindings,
   type PerDocumentSource,
 } from "./per-document";
-import { SCREEN_MIN_DOCUMENTS, screenDocuments } from "./screening";
+import { SCREEN_MIN_DOCUMENTS, SCREEN_PASSAGES_PER_DOCUMENT, screenDocuments } from "./screening";
 import {
   evidenceForDocument,
   evidenceForEntity,
@@ -237,8 +237,9 @@ Use it whenever the answer spans documents: comparing them, listing or counting 
         }
         const assumptions = session.question?.scope?.assumptions ?? [];
         // Documents the agent named are read as named; a set the tool chose
-        // itself is screened by the cards first, and the documents holding the
-        // question's best passages are read whatever their cards show.
+        // itself is screened first, by each document's card and best passages,
+        // and the documents holding the question's best passages overall are
+        // read whatever the screen would say.
         let chosen = candidates;
         let screen: { screened: number; dropped: string[] } | null = null;
         if (!named && candidates.length >= SCREEN_MIN_DOCUMENTS) {
@@ -254,9 +255,28 @@ Use it whenever the answer spans documents: comparing them, listing or counting 
             embedding,
             abortSignal: options?.abortSignal,
           });
+          const alwaysRead = new Set(best.passages.map((passage) => passage.documentId));
+          const evidence = new Map(
+            await Promise.all(
+              candidates
+                .filter((card) => !alwaysRead.has(card.documentId))
+                .map(async (card) => {
+                  const found = await searchPassages(input.dataset, {
+                    query: words,
+                    topK: SCREEN_PASSAGES_PER_DOCUMENT,
+                    documentIds: [card.documentId],
+                    chunkIds: scopedChunkIds,
+                    embedding,
+                    abortSignal: options?.abortSignal,
+                  });
+                  return [card.documentId, found.passages.map((passage) => passage.text)] as const;
+                }),
+            ),
+          );
           const result = await screenDocuments(question, candidates, {
             assumptions,
-            alwaysRead: new Set(best.passages.map((passage) => passage.documentId)),
+            alwaysRead,
+            passages: evidence,
             signal: options?.abortSignal,
           });
           chosen = result.kept;

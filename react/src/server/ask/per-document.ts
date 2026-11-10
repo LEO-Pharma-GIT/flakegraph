@@ -259,7 +259,7 @@ export function renderFindings(
   const grouped = [...groups.values()].some((members) => members.length > 1);
   const lines: string[] = [
     (screen?.dropped.length
-      ? `Screened ${screen.screened} documents by their cards: ${screen.dropped.length} are about something else. `
+      ? `Screened ${screen.screened} documents by their cards and best passages: ${screen.dropped.length} look to be about something else and were not read. `
       : "") +
       `Read ${findings.length} documents one by one: ${relevant.length} bear on the question` +
       (grouped ? `, in ${groups.size} folders` : "") +
@@ -297,8 +297,8 @@ export function renderFindings(
   if (screen?.dropped.length) {
     lines.push(
       "",
-      `Not read, their cards show another subject: ${screen.dropped.join("; ")}. ` +
-        "Read any of them by documentId if the findings above suggest it bears on the question after all.",
+      `Not read: ${screen.dropped.join("; ")}. ` +
+        "A screen of their cards and a few passages pointed elsewhere, which does not show they say nothing on the question: never state that one of them does not cover it. Read any of them by documentId before saying anything about it.",
     );
   }
   return lines.join("\n");
