@@ -25,13 +25,11 @@ import { findDocuments, renderCards } from "./catalogue";
 import type { QuestionScope } from "./question-scope";
 import {
   PER_DOCUMENT_MAX_DOCUMENTS,
-  documentContextLimit,
-  passagesPerDocument,
+  PER_DOCUMENT_PASSAGES,
   readEachDocument,
   renderFindings,
   type PerDocumentSource,
 } from "./per-document";
-import { SCREEN_MIN_DOCUMENTS, SCREEN_PASSAGES_PER_DOCUMENT, screenDocuments } from "./screening";
 import {
   evidenceForDocument,
   evidenceForEntity,
@@ -63,8 +61,6 @@ export interface AskToolSession {
   onProgress?: (update: SearchProgressUpdate) => void;
 }
 
-/** Best passages of a question whose documents are read even when their cards screen them out. */
-const SCREEN_PASSAGE_ADMISSIONS = 20;
 const topKSchema = z.number().int().min(1).max(TOOL_MAX_TOP_K).optional();
 const modeSchema = z.enum(["local", "global", "hybrid", "drift"]).optional();
 
@@ -228,61 +224,12 @@ Use it whenever the answer spans documents: comparing them, listing or counting 
           return structuredObservation("GRAPH_DOCUMENT_SCOPE_MISMATCH", scoped.mismatch);
         }
         const words = query?.trim() || question;
-        const named = Boolean(scoped.documentIds?.length);
-        const candidates = named
+        const chosen = scoped.documentIds?.length
           ? findDocuments(session.dataset, { documentIds: scoped.documentIds, limit: PER_DOCUMENT_MAX_DOCUMENTS }).cards
           : await candidateDocuments(words);
-        if (candidates.length === 0) {
+        if (chosen.length === 0) {
           return structuredObservation("GRAPH_EMPTY_RESULT", { question, tool: "readEachDocument" });
         }
-        const assumptions = session.question?.scope?.assumptions ?? [];
-        // Documents the agent named are read as named; a set the tool chose
-        // itself is screened first, by each document's card and best passages,
-        // and the documents holding the question's best passages overall are
-        // read whatever the screen would say.
-        let chosen = candidates;
-        let screen: { screened: number; dropped: string[] } | null = null;
-        if (!named && candidates.length >= SCREEN_MIN_DOCUMENTS) {
-          session.onProgress?.({
-            phase: "searching_evidence",
-            message: `Screening ${candidates.length} documents by their cards`,
-            detail: question,
-          });
-          const best = await searchPassages(input.dataset, {
-            query: words,
-            topK: SCREEN_PASSAGE_ADMISSIONS,
-            chunkIds: scopedChunkIds,
-            embedding,
-            abortSignal: options?.abortSignal,
-          });
-          const alwaysRead = new Set(best.passages.map((passage) => passage.documentId));
-          const evidence = new Map(
-            await Promise.all(
-              candidates
-                .filter((card) => !alwaysRead.has(card.documentId))
-                .map(async (card) => {
-                  const found = await searchPassages(input.dataset, {
-                    query: words,
-                    topK: SCREEN_PASSAGES_PER_DOCUMENT,
-                    documentIds: [card.documentId],
-                    chunkIds: scopedChunkIds,
-                    embedding,
-                    abortSignal: options?.abortSignal,
-                  });
-                  return [card.documentId, found.passages.map((passage) => passage.text)] as const;
-                }),
-            ),
-          );
-          const result = await screenDocuments(question, candidates, {
-            assumptions,
-            alwaysRead,
-            passages: evidence,
-            signal: options?.abortSignal,
-          });
-          chosen = result.kept;
-          screen = { screened: candidates.length, dropped: result.dropped.map((card) => card.name) };
-        }
-        const passages = passagesPerDocument(chosen.length);
         session.onProgress?.({
           phase: "searching_evidence",
           message: `Reading ${chosen.length} documents one by one`,
@@ -292,7 +239,7 @@ Use it whenever the answer spans documents: comparing them, listing or counting 
           chosen.map(async (card) => {
             const found = await searchPassages(input.dataset, {
               query: words,
-              topK: passages,
+              topK: PER_DOCUMENT_PASSAGES,
               documentIds: [card.documentId],
               chunkIds: scopedChunkIds,
               embedding,
@@ -313,13 +260,12 @@ Use it whenever the answer spans documents: comparing them, listing or counting 
         );
         const findings = await readEachDocument(question, sources, {
           signal: options?.abortSignal,
-          assumptions,
-          contextLimit: documentContextLimit(passages),
+          assumptions: session.question?.scope?.assumptions ?? [],
           onProgress: (done, total) =>
             session.onProgress?.({ phase: "searching_evidence", message: `Read ${done} of ${total} documents`, detail: question }),
         });
         return {
-          text: renderFindings(findings, screen),
+          text: renderFindings(findings),
           documentIds: findings.filter((finding) => finding.relevant).map((finding) => finding.documentId),
         };
       },
