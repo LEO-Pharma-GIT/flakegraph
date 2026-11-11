@@ -1,6 +1,7 @@
 import { generateText, Output } from "ai";
 import { z } from "zod";
 import { errorMessage } from "./errors";
+import { FairGate } from "./gate";
 import { resolveAskModel } from "./model";
 
 /**
@@ -24,12 +25,21 @@ export const PER_DOCUMENT_MAX_DOCUMENTS = 64;
  * what a serving fleet admits at once.
  */
 export const PER_DOCUMENT_CONCURRENCY = 16;
+/**
+ * Calls in flight across every question the console answers at once, unless
+ * `FLAKEGRAPH_ASK_READ_SLOTS` says otherwise: below what the engines that serve
+ * people run at once, so a call is sent when an engine can start it and its
+ * timeout measures the read, not a queue.
+ */
+export const PER_DOCUMENT_SHARED_SLOTS = 40;
 /** Passages each document is read from. */
 export const PER_DOCUMENT_PASSAGES = 10;
 /** How much of one document's passages and card a call reads. */
 export const PER_DOCUMENT_CONTEXT_CHAR_LIMIT = 14_000;
 export const PER_DOCUMENT_MAX_OUTPUT_TOKENS = 1_600;
 export const PER_DOCUMENT_CALL_TIMEOUT_MS = 90_000;
+/** A document whose call fails is read once more before it is reported unread. */
+export const PER_DOCUMENT_ATTEMPTS = 2;
 const MAX_FACTS = 10;
 const MAX_FACT_CHARACTERS = 400;
 const MAX_QUOTE_CHARACTERS = 300;
@@ -147,13 +157,27 @@ export async function readEachDocument(
     throw new Error("Reading documents one by one needs the console's model.");
   }
   const results: DocumentFinding[] = new Array(sources.length);
+  const gate = sharedGate();
+  const tenant = Symbol(question);
   let next = 0;
   let done = 0;
   const worker = async () => {
     while (next < sources.length) {
       const index = next++;
       const source = sources[index]!;
-      results[index] = await readOne(question, source, model, options.signal, options.assumptions ?? []);
+      let finding: DocumentFinding;
+      let attempts = 0;
+      do {
+        const release = await gate.acquire(tenant, options.signal);
+        try {
+          finding = await readOne(question, source, model, options.signal, options.assumptions ?? []);
+        } finally {
+          release();
+        }
+        options.signal?.throwIfAborted();
+        attempts += 1;
+      } while (finding.failure && attempts < PER_DOCUMENT_ATTEMPTS);
+      results[index] = finding;
       done += 1;
       options.onProgress?.(done, sources.length);
     }
@@ -161,6 +185,17 @@ export async function readEachDocument(
   const width = Math.max(1, Math.min(options.concurrency ?? PER_DOCUMENT_CONCURRENCY, sources.length));
   await Promise.all(Array.from({ length: width }, worker));
   return results;
+}
+
+let gate: FairGate | null = null;
+
+/** The one gate every question's reads share. */
+function sharedGate(): FairGate {
+  if (!gate) {
+    const configured = Number.parseInt(process.env.FLAKEGRAPH_ASK_READ_SLOTS ?? "", 10);
+    gate = new FairGate(Number.isFinite(configured) && configured > 0 ? configured : PER_DOCUMENT_SHARED_SLOTS);
+  }
+  return gate;
 }
 
 async function readOne(

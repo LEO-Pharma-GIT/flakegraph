@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { AskModel } from "./model";
 
 const prompts: string[] = [];
+let inFlight = 0;
+let mostInFlight = 0;
+const flaky = new Set<string>();
 
 function scriptedModel(): AskModel {
   const languageModel = new MockLanguageModelV4({
@@ -11,6 +14,17 @@ function scriptedModel(): AskModel {
       prompts.push(prompt);
       if (prompt.includes("Broken report")) {
         throw new Error("engine unavailable");
+      }
+      const name = /Document: (Flaky [^\\]+?)\\n/.exec(prompt)?.[1];
+      if (name && !flaky.has(name)) {
+        flaky.add(name);
+        throw new Error("timed out");
+      }
+      if (prompt.includes("Slow")) {
+        inFlight += 1;
+        mostInFlight = Math.max(mostInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        inFlight -= 1;
       }
       const relevant = prompt.includes("With irrigation");
       const text = JSON.stringify({
@@ -46,7 +60,8 @@ vi.mock("./model", async (importOriginal) => {
   return { ...original, resolveAskModel: () => scriptedModel() };
 });
 
-const { documentContext, readEachDocument, renderFindings } = await import("./per-document");
+process.env.FLAKEGRAPH_ASK_READ_SLOTS = "3";
+const { PER_DOCUMENT_ATTEMPTS, documentContext, readEachDocument, renderFindings } = await import("./per-document");
 
 const source = (id: string, name: string, text: string, group: string | null = null) => ({
   documentId: id,
@@ -80,9 +95,33 @@ describe("readEachDocument", () => {
     expect(findings[0]?.group).toBe("farms/trial");
     expect(findings[1]?.premiseIssues?.[0]?.verdict).toBe("contradicted");
     expect(findings[2]?.failure).toContain("engine unavailable");
-    // A document with nothing to read costs no call; every call sees the assumptions.
-    expect(prompts).toHaveLength(3);
+    // A document with nothing to read costs no call, one that fails is read once more; every call sees the assumptions.
+    expect(prompts).toHaveLength(2 + PER_DOCUMENT_ATTEMPTS);
+    expect(prompts.filter((prompt) => prompt.includes("Broken report"))).toHaveLength(PER_DOCUMENT_ATTEMPTS);
     expect(prompts.every((prompt) => prompt.includes("The soil survey covered irrigation"))).toBe(true);
+  });
+});
+
+describe("readEachDocument under load", () => {
+  it("reads a document again when its call fails once", async () => {
+    const [finding] = await readEachDocument("What did irrigation change?", [
+      source("doc_f", "Flaky report", "With irrigation the yield rose 12%."),
+    ]);
+    expect(finding?.failure).toBeUndefined();
+    expect(finding?.relevant).toBe(true);
+  });
+
+  it("keeps the calls of every question together within the shared slots", async () => {
+    mostInFlight = 0;
+    const slow = (prefix: string) =>
+      Array.from({ length: 5 }, (_, index) => source(`${prefix}_${index}`, `Slow ${prefix} ${index}`, "Soil pH ranged from 5.5 to 7."));
+    const [first, second] = await Promise.all([
+      readEachDocument("What did irrigation change?", slow("a")),
+      readEachDocument("What did irrigation change?", slow("b")),
+    ]);
+    expect(first).toHaveLength(5);
+    expect(second).toHaveLength(5);
+    expect(mostInFlight).toBe(3);
   });
 });
 
