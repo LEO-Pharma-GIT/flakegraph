@@ -61,7 +61,8 @@ vi.mock("./model", async (importOriginal) => {
 });
 
 process.env.FLAKEGRAPH_ASK_READ_SLOTS = "3";
-const { PER_DOCUMENT_ATTEMPTS, documentContext, readEachDocument, renderFindings } = await import("./per-document");
+const { PER_DOCUMENT_ATTEMPTS, documentContext, readEachDocument, renderFindings, renderStudies, studyFindings, studyFindingsFromOutput } =
+  await import("./per-document");
 
 const source = (id: string, name: string, text: string, group: string | null = null) => ({
   documentId: id,
@@ -150,6 +151,7 @@ describe("renderFindings", () => {
     ]);
 
     expect(text.split("\n")[0]).toContain("Read 3 documents one by one: 1 bear on the question, 1 do not, 1 could not be read.");
+    expect(text.split("\n")[0]).toContain("Each one's findings are added after your answer, study by study");
     expect(text).toContain(
       "## Problems with the question's assumptions - open the answer with these\n- contradicted: \"It covered irrigation\" - pH only. (Soil survey)",
     );
@@ -169,6 +171,37 @@ describe("renderFindings", () => {
     expect(text).toContain("3 bear on the question, in 2 folders");
     expect(text).toContain("## Folder: study-17 (2 documents)\n\n### Wave 1 report (doc_a)");
     expect(text).toContain("## Folder: study-20 (1 document)");
+  });
+});
+
+describe("studyFindings and renderStudies", () => {
+  it("lists each document that bears on the question under its folder, with the pages its facts rest on", () => {
+    const studies = studyFindings([
+      {
+        documentId: "doc_a",
+        documentName: "Wave 1 report",
+        group: "study-17",
+        relevant: true,
+        answer: "Yield rose 12%.",
+        facts: [
+          { statement: "A.", quote: "a", page: 7 },
+          { statement: "B.", quote: "b", page: 3 },
+          { statement: "C.", quote: "c", page: 7 },
+        ],
+      },
+      { documentId: "doc_b", documentName: "Soil survey", relevant: false, answer: "", facts: [] },
+      { documentId: "doc_c", documentName: "Pilot", group: null, relevant: true, answer: "No change.", facts: [] },
+    ]);
+    expect(studies.map((study) => study.documentId)).toEqual(["doc_a", "doc_c"]);
+    expect(renderStudies(studies)).toBe(
+      "## Study by study\n\n### study-17\n- **Wave 1 report** (p. 3, 7): Yield rose 12%.\n\n### Pilot\nNo change.",
+    );
+    expect(renderStudies([])).toBe("");
+  });
+
+  it("reads study findings only from a tool output that carries them", () => {
+    expect(studyFindingsFromOutput({ text: "x" })).toEqual([]);
+    expect(studyFindingsFromOutput({ studies: [{ documentId: "d", documentName: "D", answer: "A", pages: [], group: null }, { bad: 1 }] })).toHaveLength(1);
   });
 });
 

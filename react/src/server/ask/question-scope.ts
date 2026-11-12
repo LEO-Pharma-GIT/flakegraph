@@ -94,7 +94,8 @@ export function scopeNote(scope: QuestionScope): string | null {
     lines.push(
       "This question takes for granted:",
       ...scope.assumptions.map((item) => `- ${item}`),
-      "Check each against what the documents say. If one is contradicted or not supported, say so in your first sentence.",
+      "Check each against what the documents say. If one is contradicted or not supported, say so in your first sentence. " +
+        "One about what the collection holds - that documents or studies on something exist - holds when any document bears on it.",
     );
   }
   if (spansDocuments(scope)) {

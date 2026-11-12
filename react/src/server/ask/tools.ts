@@ -28,6 +28,7 @@ import {
   PER_DOCUMENT_PASSAGES,
   readEachDocument,
   renderFindings,
+  studyFindings,
   type PerDocumentSource,
 } from "./per-document";
 import {
@@ -267,6 +268,8 @@ Use it whenever the answer spans documents: comparing them, listing or counting 
         return {
           text: renderFindings(findings),
           documentIds: findings.filter((finding) => finding.relevant).map((finding) => finding.documentId),
+          // Added to the answer after it is written; the model reads only the text.
+          studies: studyFindings(findings),
         };
       },
     }),

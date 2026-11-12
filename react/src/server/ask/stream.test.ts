@@ -71,6 +71,66 @@ describe("the NDJSON ask stream", () => {
     expect((await ask()).at(-1)).toMatchObject({ type: "done", answer: { summary: "An agency did." } });
   });
 
+  it("follows the answer with every document read one by one that bears on the question", async () => {
+    const study = (documentId: string, documentName: string, answer: string) => ({
+      documentId,
+      documentName,
+      group: "study-17",
+      answer,
+      pages: [3],
+    });
+    agentChunks = [
+      { type: "tool-input-available", toolCallId: "t1", toolName: "readEachDocument", input: {} },
+      {
+        type: "tool-output-available",
+        toolCallId: "t1",
+        output: { text: "findings", studies: [study("doc_a", "Wave 1", "Yield rose 12%."), study("doc_b", "Wave 2", "Yield rose 9%.")] },
+      },
+      { type: "tool-input-available", toolCallId: "t2", toolName: "readEachDocument", input: {} },
+      { type: "tool-output-available", toolCallId: "t2", output: { text: "findings", studies: [study("doc_a", "Wave 1", "Yield rose 12%.")] } },
+      { type: "start-step" },
+      { type: "text-delta", id: "a", delta: "Both waves found higher yields." },
+    ];
+    const events = await ask();
+    const summary = (events.at(-1) as Extract<AskStreamEvent, { type: "done" }>).answer.summary;
+    expect(summary).toBe(
+      "Both waves found higher yields.\n\n## Study by study\n\n### study-17\n- **Wave 1** (p. 3): Yield rose 12%.\n- **Wave 2** (p. 3): Yield rose 9%.",
+    );
+    const streamed = events.flatMap((event) => (event.type === "text" ? [event.delta] : [])).join("");
+    expect(streamed).toBe(summary);
+  });
+
+  it("adds the documents read one by one to the console's own message stream, before it finishes", async () => {
+    agentChunks = [
+      { type: "start" },
+      { type: "tool-input-available", toolCallId: "t1", toolName: "readEachDocument", input: {} },
+      {
+        type: "tool-output-available",
+        toolCallId: "t1",
+        output: { text: "findings", studies: [{ documentId: "doc_a", documentName: "Wave 1", group: null, answer: "Yield rose 12%.", pages: [] }] },
+      },
+      { type: "text-start", id: "a" },
+      { type: "text-delta", id: "a", delta: "Yields rose." },
+      { type: "text-end", id: "a" },
+      { type: "finish" },
+    ];
+    const response = await handleAskRequest(
+      new Request("https://console.example.test/api/ask", {
+        method: "POST",
+        body: JSON.stringify({ runId: "run_1", question: "What changed?", format: "ui" }),
+      }),
+    );
+    const chunks = (await response.text())
+      .split("\n")
+      .filter((line) => line.startsWith("data: {"))
+      .map((line) => JSON.parse(line.slice(6)) as { type: string; delta?: string });
+    const types = chunks.map((chunk) => chunk.type);
+    const added = chunks.find((chunk) => chunk.type === "text-delta" && chunk.delta?.includes("## Study by study"));
+    expect(added?.delta).toBe("\n\n## Study by study\n\n### Wave 1\nYield rose 12%.");
+    expect(types.indexOf("finish")).toBeGreaterThan(chunks.indexOf(added!));
+    expect(types.at(-1)).toBe("finish");
+  });
+
   it("ends a question the time limit cut short with a timeout error, not an answer", async () => {
     agentChunks = [{ type: "abort", reason: "TimeoutError" }];
     const events = await ask();

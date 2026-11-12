@@ -110,7 +110,7 @@ const SYSTEM = `You read one document for one question and report only what that
 - relevant is true when the document says anything that answers or bears on the question, false when it says nothing about it.
 - answer is what this document says on the question, in one to three sentences, keeping its numbers, units, dates, places, sample sizes and qualifiers exactly as written. Leave it empty when relevant is false.
 - facts are the specific statements behind the answer - each with quote, the exact words of the passage or card it rests on (copied, not paraphrased), and the page it is on (null when not given). Prefer facts with numbers, and give every number the document states on the question.
-- premise_issues: the question may take things for granted (listed as assumptions). For each assumption this document is about, say if the document contradicts it, or does not support it where it is the document that should state it, and why in one sentence. Leave it empty when the document agrees or does not concern the assumption.
+- premise_issues: the question may take things for granted (listed as assumptions). For each assumption about what this document itself reports - its own study, sample, places, dates or results - say if the document contradicts it, or does not support it where it is the document that should state it, and why in one sentence. Leave it empty when the document agrees or does not concern the assumption. Leave out assumptions about other documents or the collection - that studies on a subject exist, how many there are, what a set of them covers: one document can neither contradict nor fail to support those, and being a single study, or not mentioning something, is no contradiction.
 - Use only the card and passages given. Never use outside knowledge, and never infer what the document does not say.`;
 
 /** Render one document's card and passages within the context bound. */
@@ -266,7 +266,9 @@ export function renderFindings(findings: DocumentFinding[]): string {
     `Read ${findings.length} documents one by one: ${relevant.length} bear on the question` +
       (grouped ? `, in ${groups.size} folders` : "") +
       `, ${silent.length} do not${unread.length ? `, ${unread.length} could not be read` : ""}. ` +
-      "Every document that bears on it is listed below; answer from these findings and account for each.",
+      "Every document that bears on it is listed below. Each one's findings are added after your answer, study by study, " +
+      "so write what they show together - patterns, comparisons, counts, differences, with their numbers - naming the studies behind each point, " +
+      "rather than going through them one by one. Never say that a document listed below does not bear on the question.",
   ];
   const issues = findings.flatMap((finding) =>
     (finding.premiseIssues ?? []).map((issue) => ({ ...issue, documentName: finding.documentName })),
@@ -295,6 +297,73 @@ export function renderFindings(findings: DocumentFinding[]): string {
   }
   if (unread.length) {
     lines.push("", `Could not be read: ${unread.map((finding) => finding.documentName).join("; ")}`);
+  }
+  return lines.join("\n");
+}
+
+/** One document's finding as the answer shows it after its synthesis. */
+export interface StudyFinding {
+  documentId: string;
+  documentName: string;
+  group: string | null;
+  answer: string;
+  /** Pages its facts rest on. */
+  pages: number[];
+}
+
+/** The findings that bear on the question, as the answer lists them study by study. */
+export function studyFindings(findings: DocumentFinding[]): StudyFinding[] {
+  return findings
+    .filter((finding) => finding.relevant && finding.answer.trim())
+    .map((finding) => ({
+      documentId: finding.documentId,
+      documentName: finding.documentName,
+      group: finding.group?.trim() || null,
+      answer: finding.answer.trim(),
+      pages: [...new Set(finding.facts.map((fact) => fact.page).filter((page): page is number => page != null))].sort(
+        (left, right) => left - right,
+      ),
+    }));
+}
+
+/** The study findings a tool output carries, read defensively since it arrives as plain data. */
+export function studyFindingsFromOutput(output: unknown): StudyFinding[] {
+  const studies = output && typeof output === "object" ? (output as { studies?: unknown }).studies : undefined;
+  if (!Array.isArray(studies)) {
+    return [];
+  }
+  return studies.filter(
+    (study): study is StudyFinding =>
+      Boolean(study) &&
+      typeof study.documentId === "string" &&
+      typeof study.documentName === "string" &&
+      typeof study.answer === "string" &&
+      Array.isArray(study.pages),
+  );
+}
+
+/**
+ * Every document that bears on the question with what it says, grouped by the
+ * folder it sits in, so an answer accounts for each of them however it is
+ * written: a synthesis across many documents names the ones behind each point,
+ * and this lists all of them.
+ */
+export function renderStudies(studies: readonly StudyFinding[]): string {
+  if (!studies.length) {
+    return "";
+  }
+  const groups = new Map<string, StudyFinding[]>();
+  for (const study of studies) {
+    const key = study.group ?? study.documentName;
+    groups.set(key, [...(groups.get(key) ?? []), study]);
+  }
+  const lines = ["## Study by study"];
+  for (const [group, members] of groups) {
+    lines.push("", `### ${group}`);
+    for (const study of members) {
+      const pages = study.pages.length ? ` (p. ${study.pages.join(", ")})` : "";
+      lines.push(study.group ? `- **${study.documentName}**${pages}: ${study.answer}` : `${study.answer}${pages}`);
+    }
   }
   return lines.join("\n");
 }

@@ -13,6 +13,7 @@ import { AskHttpError, isAbortError } from "./errors";
 import { answerFromGrounding, emptyGrounding, groundingFromToolOutput, mergeGrounding } from "./grounding";
 import { loadAskRunGraph, perspectiveScope } from "./load";
 import { probeAskModel, resolveAskModel } from "./model";
+import { renderStudies, studyFindingsFromOutput, type StudyFinding } from "./per-document";
 import { encodeAskEvent } from "./protocol";
 import { acceptFormat, clampTopK, extractQuestion, parseDocumentIds, parseMode, toUiUserMessage } from "./request";
 import { lexicalAsk } from "./lexical";
@@ -160,7 +161,35 @@ function streamAskUi(args: {
         abortSignal: args.request.signal,
         timeout: ASK_STREAM_TIMEOUT_MS,
       });
-      writer.merge(agentStream);
+      // Forwarded chunk by chunk so the documents read one by one can follow
+      // the answer, before the message finishes.
+      const studies = new Map<string, StudyFinding>();
+      let answered = false;
+      let failed = false;
+      let finish: (typeof agentStream extends AsyncIterable<infer CHUNK> ? CHUNK : never) | null = null;
+      for await (const chunk of agentStream) {
+        if (chunk.type === "finish") {
+          finish = chunk;
+          continue;
+        }
+        writer.write(chunk);
+        if (chunk.type === "tool-output-available") {
+          for (const study of studyFindingsFromOutput(chunk.output)) {
+            studies.set(study.documentId, study);
+          }
+        }
+        answered ||= chunk.type === "text-delta" && Boolean(chunk.delta);
+        failed ||= chunk.type === "error" || chunk.type === "abort";
+      }
+      const appendix = answered && !failed ? renderStudies([...studies.values()]) : "";
+      if (appendix) {
+        writer.write({ type: "text-start", id: "studies" });
+        writer.write({ type: "text-delta", id: "studies", delta: `\n\n${appendix}` });
+        writer.write({ type: "text-end", id: "studies" });
+      }
+      if (finish) {
+        writer.write(finish);
+      }
     },
   });
   return createUIMessageStreamResponse({ stream });
@@ -262,6 +291,7 @@ function streamAskNdjson(args: {
         let timedOut = false;
         let grounding = emptyGrounding();
         const seenCitations = new Set<string>();
+        const studies = new Map<string, StudyFinding>();
         for await (const chunk of uiStream) {
           if (args.request.signal.aborted) {
             throw new DOMException("Ask aborted", "AbortError");
@@ -285,6 +315,9 @@ function streamAskNdjson(args: {
           if (chunk.type === "tool-output-available") {
             const name = toolNames.get(chunk.toolCallId) ?? "tool";
             send({ type: "tool", name, state: "done", output: chunk.output });
+            for (const study of studyFindingsFromOutput(chunk.output)) {
+              studies.set(study.documentId, study);
+            }
             const next = groundingFromToolOutput(chunk.output);
             grounding = mergeGrounding(grounding, next);
             for (const citation of next.citations) {
@@ -306,7 +339,14 @@ function streamAskNdjson(args: {
         }
         // A question without an answer ends in an error, never in a `done`
         // that a caller could pass on as the graph's answer.
-        const summary = (textParts.join("") || earlierText).trim();
+        const written = (textParts.join("") || earlierText).trim();
+        // Every document read one by one that bears on the question follows the
+        // answer with what it says, so none is left out however the answer is written.
+        const appendix = written ? renderStudies([...studies.values()]) : "";
+        if (appendix) {
+          send({ type: "text", delta: `\n\n${appendix}` });
+        }
+        const summary = appendix ? `${written}\n\n${appendix}` : written;
         if (timedOut) {
           send({
             type: "error",
