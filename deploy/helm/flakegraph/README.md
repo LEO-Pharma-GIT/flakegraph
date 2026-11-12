@@ -11,7 +11,7 @@ and which profiles ship with it.
 
 Nothing beyond Kubernetes itself. With the shipped `values.yaml`:
 
-- Images come from `ghcr.io/leo-pharma-r-d-data-analytics/flakegraph` and
+- Images come from `ghcr.io/leo-pharma-git/flakegraph` and
   `.../flakegraph-spark` at the chart's `appVersion`, published for amd64 and
   arm64 by `.github/workflows/publish.yml`. A fork sets `image.repository`.
 - No CRD-backed object is rendered. KEDA autoscaling

@@ -192,7 +192,7 @@ reports no allocatable GPU, and takes model pods nowhere.
 
 ## Build Images
 
-Release tags publish `ghcr.io/leo-pharma-r-d-data-analytics/flakegraph` and
+Release tags publish `ghcr.io/leo-pharma-git/flakegraph` and
 `.../flakegraph-spark` for `linux/amd64` and `linux/arm64`
 (`.github/workflows/publish.yml`), and the chart's `image.tag` follows its
 `appVersion`. To build your own, for a fork or a mirror:

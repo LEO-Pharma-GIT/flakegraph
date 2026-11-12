@@ -1135,9 +1135,9 @@ def test_images_default_to_the_published_release() -> None:
     rendered = _render(_SPARK)
     version = yaml.safe_load(Path("deploy/helm/flakegraph/Chart.yaml").read_text())["appVersion"]
 
-    assert values["image"]["repository"] == "ghcr.io/leo-pharma-r-d-data-analytics/flakegraph"
+    assert values["image"]["repository"] == "ghcr.io/leo-pharma-git/flakegraph"
     assert values["spark"]["image"]["repository"] == (
-        "ghcr.io/leo-pharma-r-d-data-analytics/flakegraph-spark"
+        "ghcr.io/leo-pharma-git/flakegraph-spark"
     )
     assert values["image"]["tag"] == ""
     assert values["spark"]["image"]["tag"] == ""

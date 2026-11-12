@@ -5,7 +5,7 @@
 Please do not open a public issue for a security problem. Report it through
 GitHub's private vulnerability reporting for this repository:
 
-https://github.com/LEO-Pharma-R-D-Data-Analytics/flakegraph/security/advisories/new
+https://github.com/LEO-Pharma-GIT/flakegraph/security/advisories/new
 
 Include what you found, how to reproduce it, and which component it affects
 (the Python package, the console under `react/`, the Helm chart under

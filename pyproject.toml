@@ -66,9 +66,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/LEO-Pharma-R-D-Data-Analytics/flakegraph"
-Repository = "https://github.com/LEO-Pharma-R-D-Data-Analytics/flakegraph"
-Issues = "https://github.com/LEO-Pharma-R-D-Data-Analytics/flakegraph/issues"
+Homepage = "https://github.com/LEO-Pharma-GIT/flakegraph"
+Repository = "https://github.com/LEO-Pharma-GIT/flakegraph"
+Issues = "https://github.com/LEO-Pharma-GIT/flakegraph/issues"
 
 [project.optional-dependencies]
 dev = [

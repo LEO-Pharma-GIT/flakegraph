@@ -14,8 +14,8 @@ appVersion: "0.1.0"
 # Traefik) are guarded on the cluster's own API discovery rather than on a
 # version floor.
 kubeVersion: ">=1.28.0-0"
-home: https://github.com/leo-pharma-r-d-data-analytics/flakegraph
+home: https://github.com/LEO-Pharma-GIT/flakegraph
 sources:
-  - https://github.com/leo-pharma-r-d-data-analytics/flakegraph
+  - https://github.com/LEO-Pharma-GIT/flakegraph
 annotations:
   artifacthub.io/license: Apache-2.0

@@ -4,7 +4,7 @@
 # v* tag; a fork points this at its own registry. Pin a digest in production so
 # every architecture runs the exact image that passed validation.
 image:
-  repository: ghcr.io/leo-pharma-r-d-data-analytics/flakegraph
+  repository: ghcr.io/leo-pharma-git/flakegraph
   # Empty follows the chart's appVersion, which is the release the chart was
   # published with. Release tags are immutable, so nodes may keep what they
   # pulled; a digest above the tag makes the pin byte-exact.
@@ -193,7 +193,7 @@ artifactStorage:
 spark:
   enabled: false
   image:
-    repository: ghcr.io/leo-pharma-r-d-data-analytics/flakegraph-spark
+    repository: ghcr.io/leo-pharma-git/flakegraph-spark
     tag: ""
     digest: ""
     pullPolicy: IfNotPresent
