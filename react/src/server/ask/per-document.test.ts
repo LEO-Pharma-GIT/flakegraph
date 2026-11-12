@@ -61,7 +61,7 @@ vi.mock("./model", async (importOriginal) => {
 });
 
 process.env.FLAKEGRAPH_ASK_READ_SLOTS = "3";
-const { PER_DOCUMENT_ATTEMPTS, documentContext, readEachDocument, renderFindings, renderStudies, studyFindings, studyFindingsFromOutput } =
+const { PER_DOCUMENT_ATTEMPTS, documentContext, readEachDocument, renderFindings, renderStudies, studyFindings, studyFindingsFromOutput, withoutGaps } =
   await import("./per-document");
 
 const source = (id: string, name: string, text: string, group: string | null = null) => ({
@@ -126,6 +126,22 @@ describe("readEachDocument under load", () => {
   });
 });
 
+describe("withoutGaps", () => {
+  it("drops sentences that report what the document leaves out and keeps what it states", () => {
+    expect(
+      withoutGaps("The document does not state the 2020 strengths. It reports that Concept W was the most memorable. It does not mention pricing."),
+    ).toBe("It reports that Concept W was the most memorable.");
+    expect(withoutGaps("There is no information on Japan. The report does not specify a sample size.")).toBe("");
+  });
+
+  it("keeps the document's statements about its own scope and gaps that carry a finding", () => {
+    const scope = "No, the study did not include pharmacists; it surveyed 81 dermatologists.";
+    expect(withoutGaps(scope)).toBe(scope);
+    const withFinding = "The document does not state a total, but lists 3 waves.";
+    expect(withoutGaps(withFinding)).toBe(withFinding);
+  });
+});
+
 describe("renderFindings", () => {
   const finding = (id: string, name: string, group: string | null) => ({
     documentId: id,
@@ -152,13 +168,28 @@ describe("renderFindings", () => {
 
     expect(text.split("\n")[0]).toContain("Read 3 documents one by one: 1 bear on the question, 1 do not, 1 could not be read.");
     expect(text.split("\n")[0]).toContain("Each one's findings are added after your answer, study by study");
-    expect(text).toContain(
-      "## Problems with the question's assumptions - open the answer with these\n- contradicted: \"It covered irrigation\" - pH only. (Soil survey)",
-    );
+    expect(text).toContain("Open with what they show.");
     expect(text).toContain("## Orchard trial (doc_a)\nOrchard trial says yes.\n- [p2] A fact. - \"the exact words\"");
-    expect(text.indexOf("Problems with")).toBeLessThan(text.indexOf("## Orchard trial"));
+    // A document that says nothing on the question does not settle its assumptions while others bear on it.
+    expect(text).not.toContain("Problems with");
     expect(text).toContain("Say nothing on it: Soil survey");
     expect(text).toContain("Could not be read: Broken report");
+  });
+
+  it("opens with the problems that documents bearing on the question raise, or those of the rest when none does", () => {
+    const issue = { assumption: "It covered irrigation", verdict: "contradicted" as const, why: "pH only." };
+    const bearing = renderFindings([{ ...finding("doc_a", "Orchard trial", null), premiseIssues: [issue] }]);
+    expect(bearing).toContain(
+      "## Problems with the question's assumptions - open the answer with these. Each is what one document states about itself; " +
+        "an assumption about the collection as a whole holds when any document listed below supports it\n" +
+        "- contradicted: \"It covered irrigation\" - pH only. (Orchard trial)",
+    );
+    expect(bearing.indexOf("Problems with")).toBeLessThan(bearing.indexOf("## Orchard trial"));
+
+    const silent = renderFindings([
+      { documentId: "doc_b", documentName: "Soil survey", relevant: false, answer: "", facts: [], premiseIssues: [issue] },
+    ]);
+    expect(silent).toContain("- contradicted: \"It covered irrigation\" - pH only. (Soil survey)");
   });
 
   it("groups documents that share a folder and counts the folders", () => {

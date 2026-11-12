@@ -113,6 +113,37 @@ const SYSTEM = `You read one document for one question and report only what that
 - premise_issues: the question may take things for granted (listed as assumptions). For each assumption about what this document itself reports - its own study, sample, places, dates or results - say if the document contradicts it, or does not support it where it is the document that should state it, and why in one sentence. Leave it empty when the document agrees or does not concern the assumption. Leave out assumptions about other documents or the collection - that studies on a subject exist, how many there are, what a set of them covers: one document can neither contradict nor fail to support those, and being a single study, or not mentioning something, is no contradiction.
 - Use only the card and passages given. Never use outside knowledge, and never infer what the document does not say.`;
 
+/**
+ * A sentence that reports what the document leaves out - "The document does not
+ * state ..." - rather than something it says. A reader asked to report only
+ * what a document states still writes these; they read as findings and lead the
+ * answer to deny what other documents show. A statement the document makes
+ * about its own scope ("the study did not include pharmacists") is kept.
+ */
+const GAP_VERBS =
+  "(?:explicitly |specifically |directly )?(?:state|say|mention|specify|report|cover|provide|discuss|address|describe|indicate|identify|give|detail|contain|present|list|explain|name|quantify|clarify|reference|break down|offer)\\b";
+const GAP_SENTENCE = new RegExp(
+  `^(?:(?:the|this) (?:document|report|presentation|deck|text|source|card|passage)s?|it) (?:also )?(?:does not|doesn't|do not|did not|never) ${GAP_VERBS}`,
+  "i",
+);
+const NO_INFORMATION_SENTENCE =
+  /^(?:there (?:is|are) )?no (?:information|data|details|mention|figures|numbers) (?:is |are )?(?:given|provided|reported|stated|available|on|about|of|for)\b/i;
+
+/** The answer without the sentences that only report what the document leaves out. */
+export function withoutGaps(answer: string): string {
+  return answer
+    .trim()
+    .split(/(?<=[.!?])\s+(?=[A-Z"'(])/)
+    .filter((sentence) => {
+      const text = sentence.trim();
+      // "It does not state X, but reports Y" still carries a finding.
+      const gap = GAP_SENTENCE.test(text) || NO_INFORMATION_SENTENCE.test(text);
+      return !gap || /\b(?:but|however|instead|although|while)\b/i.test(text);
+    })
+    .join(" ")
+    .trim();
+}
+
 /** Render one document's card and passages within the context bound. */
 export function documentContext(source: PerDocumentSource, limit = PER_DOCUMENT_CONTEXT_CHAR_LIMIT): string {
   const parts: string[] = [`Document: ${source.documentName}`];
@@ -231,11 +262,14 @@ async function readOne(
     if (!output) {
       return { ...base, relevant: false, answer: "", facts: [], failure: "the model returned nothing" };
     }
+    // Nothing left once the gaps are gone means the document says nothing on it.
+    const answer = output.relevant ? withoutGaps(output.answer) : "";
+    const relevant = output.relevant && answer.length > 0;
     return {
       ...base,
-      relevant: output.relevant,
-      answer: output.relevant ? output.answer.trim() : "",
-      facts: output.relevant ? output.facts.filter((fact) => fact.statement.trim()) : [],
+      relevant,
+      answer,
+      facts: relevant ? output.facts.filter((fact) => fact.statement.trim()) : [],
       premiseIssues: output.premise_issues.filter((issue) => issue.assumption.trim()),
     };
   } catch (error) {
@@ -268,13 +302,21 @@ export function renderFindings(findings: DocumentFinding[]): string {
       `, ${silent.length} do not${unread.length ? `, ${unread.length} could not be read` : ""}. ` +
       "Every document that bears on it is listed below. Each one's findings are added after your answer, study by study, " +
       "so write what they show together - patterns, comparisons, counts, differences, with their numbers - naming the studies behind each point, " +
-      "rather than going through them one by one. Never say that a document listed below does not bear on the question.",
+      "rather than going through them one by one. Open with what they show. Never say that a document listed below does not bear on the question, " +
+      "or that the collection lacks what one of them states. A count is a count of the folders or documents listed below, each one named.",
   ];
-  const issues = findings.flatMap((finding) =>
+  // Documents that bear on the question settle its assumptions. One that says
+  // nothing on it speaks only to an assumption about itself, and while others
+  // bear on it, its "contradicted" usually takes one study for the collection.
+  const issues = (relevant.length ? relevant : findings).flatMap((finding) =>
     (finding.premiseIssues ?? []).map((issue) => ({ ...issue, documentName: finding.documentName })),
   );
   if (issues.length) {
-    lines.push("", "## Problems with the question's assumptions - open the answer with these");
+    lines.push(
+      "",
+      "## Problems with the question's assumptions - open the answer with these. Each is what one document states about itself; " +
+        "an assumption about the collection as a whole holds when any document listed below supports it",
+    );
     for (const issue of issues) {
       lines.push(`- ${issue.verdict}: "${issue.assumption}" - ${issue.why} (${issue.documentName})`);
     }
