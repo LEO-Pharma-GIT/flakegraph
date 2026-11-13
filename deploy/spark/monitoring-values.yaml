@@ -1,0 +1,336 @@
+# Values for the kube-prometheus-stack release that install-cluster.sh installs
+# as `monitoring` in the FlakeGraph namespace: the k3s / DGX Spark reference
+# profile. A cluster with its own stack keeps it and sets the chart's
+# monitoring.release and monitoring.namespace instead; what the chart needs
+# from any stack is listed under "What the FlakeGraph chart depends on".
+#
+# The stack lives in the application namespace rather than a `monitoring` one
+# because k3s's Traefik refuses cross-namespace middleware references and
+# ExternalName backends. Grafana can only sit behind the application's shared
+# SSO middlewares if it is in the same namespace, so the FlakeGraph chart
+# renders Grafana's Ingress, NetworkPolicy, ServiceMonitors, dashboards and
+# alert rules itself. This file configures nothing but the stack.
+#
+# Security-relevant settings here hold together only as a set: Grafana's
+# auth.proxy trusts a request header, which is sound only behind the chart's
+# sign-in gate (ingress.authProxy) with controlPlane.networkPolicy on, so that
+# nothing but the ingress controller can reach Grafana; basic auth stays on
+# for the generated admin credential; the login form is off. Weaken one and
+# revisit the others.
+#
+# Two settings are deployment-specific and come from the script, not from here:
+#   --set 'grafana.grafana\.ini.server.root_url=https://grafana.<domain>/'
+#   --set prometheus.prometheusSpec.externalLabels.cluster=<cluster>
+#
+# `fullnameOverride` is deliberately left unset, so the chart derives names from
+# the release name. The FlakeGraph chart depends on these (verified with
+# `helm template` for the pinned chart version):
+#   Grafana Service            monitoring-grafana                  (port http-web, 80)
+#   Prometheus Service         monitoring-kube-prometheus-prometheus (port http-web, 9090)
+#   Prometheus ServiceAccount  monitoring-kube-prometheus-prometheus
+#   Prometheus pod labels      app.kubernetes.io/name: prometheus
+#                              prometheus: monitoring-kube-prometheus-prometheus
+#   Alertmanager Service       monitoring-kube-prometheus-alertmanager (port http-web, 9093)
+#   Grafana Deployment         monitoring-grafana
+
+# ---------------------------------------------------------------------------
+# Grafana
+# ---------------------------------------------------------------------------
+grafana:
+  enabled: true
+
+  # Credentials come from a secret install-cluster.sh generates once and never
+  # prints, in the same way it handles the object storage root credential.
+  # The login form is disabled below, so this credential is for the HTTP API
+  # (provisioning checks, scripted dashboard exports) rather than for people.
+  admin:
+    existingSecret: flakegraph-grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+
+  grafana.ini:
+    server:
+      # Set by install-cluster.sh from the deployment domain. Grafana builds
+      # redirect and share URLs from this, so it must match the public
+      # hostname the FlakeGraph chart's Ingress serves.
+      root_url: ""
+    # oauth2-proxy authenticates at the edge and Traefik's forwardAuth
+    # middleware *replaces* these headers on every request it forwards, so
+    # the identity in them is trustworthy as long as nothing but Traefik can
+    # reach Grafana. The FlakeGraph chart enforces that with a NetworkPolicy
+    # that admits only the ingress controller; do not weaken it without also
+    # turning this off, or anyone in the cluster could impersonate any user
+    # by setting one header.
+    auth.proxy:
+      enabled: true
+      header_name: X-Auth-Request-Email
+      header_property: email
+      auto_sign_up: true
+      headers: "Name:X-Auth-Request-Preferred-Username"
+      # A login token would let a session outlive the proxy's own session,
+      # which is exactly the state the edge is supposed to control.
+      enable_login_token: false
+    auth:
+      # Everyone arrives already authenticated; a login form would only be a
+      # confusing dead end.
+      disable_login_form: true
+    auth.basic:
+      # Keeps the HTTP API usable with the admin credential above, which is
+      # how the chart's provisioning and any scripted access reach Grafana.
+      enabled: true
+    users:
+      # Everyone the gate admits may look; building dashboards is a role an
+      # admin hands out. Editor would let any signed-in account change the
+      # shared dashboards that are not provisioned, and with emailDomain "*"
+      # "signed in" is everyone the issuer admits.
+      auto_assign_org_role: Viewer
+    analytics:
+      # Grafana's own usage reporting and update check leave the cluster.
+      reporting_enabled: false
+      check_for_updates: false
+    security:
+      # The only path to Grafana is the TLS-terminating edge.
+      cookie_secure: true
+
+  # Provisioned dashboards live in ConfigMaps and need no disk, but dashboards
+  # people author in the UI are stored in Grafana's own SQLite database and
+  # would vanish on every pod restart without a volume. The default
+  # StorageClass on these nodes is local-path.
+  persistence:
+    enabled: true
+    size: 10Gi
+
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      # The FlakeGraph chart groups its dashboards into a folder by annotating
+      # each ConfigMap; the sidecar mirrors that as a directory and Grafana's
+      # provider turns the directory into a folder.
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+      # Own namespace only. The parent chart defaults to ALL, which would let
+      # any namespace on the node inject dashboards into this Grafana.
+      searchNamespace: null
+      # The kiwigrid sidecar reads ConfigMaps by default; `both` adds Secrets.
+      # Dashboards only need ConfigMaps, but keeping the two sidecars
+      # symmetrical avoids a surprise the day a dashboard carries a token.
+      resource: both
+    datasources:
+      enabled: true
+      # The chart's own Prometheus datasource is provisioned with this uid, and
+      # every dashboard the FlakeGraph chart ships references it by uid rather
+      # than by name so that a renamed datasource does not break panels.
+      uid: prometheus
+      label: grafana_datasource
+      labelValue: "1"
+      searchNamespace: null
+      # The FlakeGraph chart provisions its PostgreSQL datasource as a Secret
+      # because it carries the database password; a ConfigMap-only sidecar
+      # would silently never see it.
+      resource: both
+
+  # The FlakeGraph chart renders the Ingress so it can attach the shared SSO
+  # middlewares; a second Ingress from this chart would race it for the host.
+  ingress:
+    enabled: false
+
+  # The test pod pulls a bats image for `helm test`, which nobody runs here.
+  testFramework:
+    enabled: false
+
+  # The bundled node/pod/kubelet dashboards are worth keeping. Operators sit in
+  # more than one timezone, so let the browser decide rather than pinning UTC.
+  defaultDashboardsEnabled: true
+  defaultDashboardsTimezone: browser
+
+# ---------------------------------------------------------------------------
+# Prometheus
+# ---------------------------------------------------------------------------
+prometheus:
+  # The FlakeGraph chart renders the Ingress, for the same reason as Grafana's.
+  ingress:
+    enabled: false
+
+  prometheusSpec:
+    # A quarter's worth of samples answers "has this regressed since the last
+    # model change" without a long-term store. The size cap is the real
+    # limit: the volume below is 200Gi and Prometheus needs headroom for
+    # compaction, so it evicts by size well before the disk fills.
+    retention: 90d
+    retentionSize: 180GiB
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 200Gi
+
+    # By default the operator only selects ServiceMonitors, PodMonitors,
+    # PrometheusRules and Probes that carry this release's labels. The
+    # FlakeGraph chart renders its own with no knowledge of the release
+    # name, so select by namespace membership instead.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+
+    scrapeInterval: 15s
+    evaluationInterval: 30s
+
+    # A DGX Spark has 128 GiB of unified memory shared with the models;
+    # Prometheus must not be allowed to eat into it unbounded when cardinality
+    # grows.
+    resources:
+      requests:
+        cpu: 500m
+        memory: 4Gi
+      limits:
+        memory: 8Gi
+
+    # Set by install-cluster.sh. Distinguishes this cluster's series once
+    # more than one cluster forwards to a shared store or Alertmanager.
+    externalLabels:
+      cluster: ""
+
+    # The admin API allows deleting series and snapshots over plain HTTP;
+    # nothing here needs it.
+    enableAdminAPI: false
+
+  # Cluster-level scrape targets that are not the application's concern and
+  # so do not belong in the FlakeGraph chart.
+  additionalServiceMonitors:
+    # The DCGM exporter install-cluster.sh installs into gpu-monitoring
+    # (dcgm-exporter chart labels its Service app.kubernetes.io/name:
+    # dcgm-exporter and names the port `metrics`). It serves DCGM_FI_DEV_* on
+    # port 9400 for every GPU; the Fleet Overview dashboard's GPU row reads
+    # those series and selects the namespace through its DCGM namespace
+    # variable. A cluster whose exporter came with the GPU Operator changes
+    # the namespace and selector here to match (gpu-operator, app:
+    # nvidia-dcgm-exporter).
+    - name: dcgm-exporter
+      namespaceSelector:
+        matchNames: [gpu-monitoring]
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: dcgm-exporter
+      endpoints:
+        - port: metrics
+          interval: 15s
+          # The exporter's own `hostname` label is its pod name, not the
+          # host's. The node name is what every other series is keyed by.
+          relabelings:
+            - sourceLabels: [__meta_kubernetes_pod_node_name]
+              targetLabel: node
+    # The KEDA operator serves keda_scaler_* (queue depth as KEDA sees it,
+    # scaler errors, active scalers) on port `metrics`, but only when the
+    # chart is installed with prometheus.operator.enabled=true, which
+    # install-cluster.sh does in its autoscaling step. Without that flag the
+    # keda-operator Service has no `metrics` port and this target stays
+    # empty rather than failing. The metrics-apiserver's own :8080 exposes
+    # nothing but gRPC client counters and is not worth a scrape.
+    - name: keda-operator
+      namespaceSelector:
+        matchNames: [keda]
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: keda-operator
+      endpoints:
+        - port: metrics
+          interval: 30s
+
+# ---------------------------------------------------------------------------
+# Control-plane scrapers
+# ---------------------------------------------------------------------------
+# k3s embeds the controller manager, scheduler, kube-proxy and etcd in the
+# server process without separate metrics listeners. Leaving their scrapers on
+# produces permanently-down targets and, through the default rules, alerts
+# that never clear (KubeControllerManagerDown, KubeSchedulerDown, ...).
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeEtcd:
+  enabled: false
+# These k3s does expose: the API server on 6443, the kubelet and cAdvisor on
+# 10250, CoreDNS on its own Service.
+kubeApiServer:
+  enabled: true
+kubelet:
+  enabled: true
+coreDns:
+  enabled: true
+nodeExporter:
+  enabled: true
+kubeStateMetrics:
+  enabled: true
+
+# The nodes carry no taints, so the node exporter's default toleration
+# (NoSchedule, any key) is enough; add explicit tolerations here if a node
+# ever gains one.
+prometheus-node-exporter:
+  extraArgs:
+    # The DGX Spark's cppc_cpufreq driver measures a core's current frequency
+    # on demand through firmware counters, and on agent nodes that read stalls
+    # indefinitely. Twenty cores, a scrape every fifteen seconds, and the
+    # exporter's forty-request cap fills within minutes, after which every
+    # scrape is a 503. Nothing here needs CPU frequency.
+    - --no-collector.cpufreq
+
+# ---------------------------------------------------------------------------
+# Alertmanager
+# ---------------------------------------------------------------------------
+alertmanager:
+  enabled: true
+  ingress:
+    enabled: false
+  alertmanagerSpec:
+    # Silences and notification state; small, but lost on restart without it.
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 2Gi
+  # Alerts are routed to a `null` receiver until someone decides where they
+  # should go. To page a channel, add a receiver under `receivers` with a
+  # `webhook_configs` (Teams via a workflow URL) or `slack_configs` entry and
+  # point `route.receiver` at it; the Watchdog route below must keep going to
+  # `null`, it exists only to prove the pipeline is alive.
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ["namespace", "alertname"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      receiver: "null"
+      routes:
+        - receiver: "null"
+          matchers:
+            - alertname = "Watchdog"
+    receivers:
+      - name: "null"
+
+# ---------------------------------------------------------------------------
+# Bundled alert and recording rules
+# ---------------------------------------------------------------------------
+defaultRules:
+  create: true
+  rules:
+    # Rule groups for the components disabled above; their alerts would fire
+    # forever against targets that do not exist.
+    kubeControllerManager: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeProxy: false
+    etcd: false
+    # Nothing here runs Windows.
+    windows: false

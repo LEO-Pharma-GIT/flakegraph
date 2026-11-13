@@ -1,0 +1,101 @@
+# Spark executors require Spark's Kubernetes entrypoint, while FlakeGraph requires
+# Python 3.14. Copying the official multi-architecture Spark runtime into the
+# pinned application base keeps both contracts without maintaining a custom JVM.
+FROM apache/spark:4.1.3-python3@sha256:bf9d035a7c32a8ca46aa58d6348182ffd7d2dff6409206ecfbb3915ff1fef211 AS spark
+
+FROM python:3.14.9-slim-trixie@sha256:b347e2dcbc7f0b6f9fb7182e9da6a187fb10ae715e0692518c1aed0eec94a700
+
+ARG UV_VERSION=0.13.5
+ARG KG_LOCAL_EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B
+ARG KG_LOCAL_EMBEDDING_REVISION=97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3
+# Baking the weights in is the right default: an executor that downloads them on
+# first use turns a network problem into a finalization failure hours into a run.
+# Sites whose egress filtering blocks the Hugging Face CDN cannot build that
+# image at all, so they set this false and mount the model instead.
+ARG KG_PRELOAD_LOCAL_EMBEDDING=true
+# Finalization computes communities inside Spark executors, so Leiden has to
+# be in this image too when a deployment selects it; see the Dockerfile.
+ARG KG_INSTALL_LEIDEN=false
+
+# HF_HUB_DISABLE_TELEMETRY as in the worker Dockerfile: no identifying user
+# agent on the preload below or on any executor's download.
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HUB_DISABLE_TELEMETRY=1 \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    XDG_CACHE_HOME=/home/spark/.cache \
+    HF_HOME=/home/spark/.cache/huggingface \
+    SENTENCE_TRANSFORMERS_HOME=/home/spark/.cache/sentence_transformers \
+    JAVA_HOME=/opt/java/openjdk \
+    SPARK_HOME=/opt/spark \
+    PYTHONPATH=/opt/spark/python/lib/pyspark.zip:/opt/spark/python/lib/py4j-0.10.9.9-src.zip \
+    FLAKEGRAPH_SPARK_BAKED_JARS=true \
+    PATH=/opt/venv/bin:/opt/spark/bin:/opt/java/openjdk/bin:$PATH
+
+COPY --from=spark /opt/java /opt/java
+COPY --from=spark /opt/spark /opt/spark
+COPY --from=spark /opt/entrypoint.sh /opt/entrypoint.sh
+
+WORKDIR /app
+
+RUN useradd --uid 185 --create-home --shell /usr/sbin/nologin spark \
+    && mkdir -p /app/out /home/spark/.cache /home/spark/.ivy2 \
+    && chown -R spark:spark /app /home/spark \
+    && python -m pip install "uv==$UV_VERSION"
+
+COPY pyproject.toml uv.lock /app/
+# Distributed finalization performs embeddings inside Spark executors. Install
+# the default local provider here so a run cannot finish extraction and then
+# fail only when executor Python begins graph enrichment.
+RUN set -- --extra local-embeddings \
+    && if [ "$KG_INSTALL_LEIDEN" = "true" ]; then set -- "$@" --extra leiden; fi \
+    && uv sync --locked --no-dev --no-editable --no-install-project "$@" \
+    && uv pip install --python /opt/venv/bin/python --no-deps graphframes-py==0.12.1 \
+    && if [ "$KG_PRELOAD_LOCAL_EMBEDDING" = "true" ]; then \
+        /opt/venv/bin/python -c \
+          "from sentence_transformers import SentenceTransformer; SentenceTransformer('$KG_LOCAL_EMBEDDING_MODEL', revision='$KG_LOCAL_EMBEDDING_REVISION')" \
+        # A pinned download records no branch; the bare model id resolves
+        # offline only when one is recorded (see the worker Dockerfile).
+        && model_cache="$SENTENCE_TRANSFORMERS_HOME/models--$(echo "$KG_LOCAL_EMBEDDING_MODEL" | sed 's#/#--#g')" \
+        && mkdir -p "$model_cache/refs" \
+        && printf '%s' "$KG_LOCAL_EMBEDDING_REVISION" > "$model_cache/refs/main"; \
+    fi \
+    && chown -R spark:spark /home/spark/.cache
+
+# Resolve JVM dependencies once at build time. Executors use the baked jars and
+# never depend on Maven availability during a graph run. This layer precedes the
+# application source so ordinary code changes do not download the 600 MB AWS SDK.
+RUN /opt/spark/bin/spark-submit \
+      --packages io.graphframes:graphframes-spark4_2.13:0.12.1,org.apache.hadoop:hadoop-aws:3.4.2 \
+      --class org.apache.spark.examples.SparkPi \
+      /opt/spark/examples/jars/spark-examples_2.13-4.1.3.jar 1 >/tmp/spark-dependency-resolution.log \
+    && cp /root/.ivy2.5.2/jars/*.jar /opt/spark/jars/ \
+    && rm -rf /root/.ivy2.5.2 /tmp/spark-dependency-resolution.log
+
+COPY README.md LICENSE NOTICE THIRD_PARTY_NOTICES.md /app/
+COPY src /app/src
+COPY configs /app/configs
+# Only the lightweight project install depends on application source. Dependency,
+# JVM-jar, and embedding-model layers remain reusable across ordinary code changes.
+RUN set -- --extra local-embeddings \
+    && if [ "$KG_INSTALL_LEIDEN" = "true" ]; then set -- "$@" --extra leiden; fi \
+    && uv sync --locked --no-dev --no-editable --inexact "$@" \
+    && chmod a+r /app/LICENSE /app/NOTICE /app/THIRD_PARTY_NOTICES.md \
+    && chown -R spark:spark /app
+
+# The official Spark entrypoint uses UID 185 for native executors. FlakeGraph's
+# hardened Helm defaults use UID 1000 for long-running application containers.
+# Naming both identities lets Hadoop resolve the effective user in either role;
+# no runtime process needs root and cluster policy does not need image-specific
+# exceptions.
+RUN useradd --uid 1000 --create-home --shell /usr/sbin/nologin spark-driver
+
+# Spark's Kubernetes entrypoint delegates signal forwarding and child-process
+# reaping to tini. Copy it from the same official Spark image as the entrypoint
+# so driver and executor lifecycle behavior remains identical to upstream.
+COPY --from=spark /usr/bin/tini /usr/bin/tini
+
+USER spark
+ENTRYPOINT ["/opt/entrypoint.sh"]
+CMD ["/opt/venv/bin/flakegraph", "--help"]

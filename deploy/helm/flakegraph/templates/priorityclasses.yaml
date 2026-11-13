@@ -1,0 +1,41 @@
+{{- if .Values.scheduling.priorityClasses.enabled }}
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ include "flakegraph.workerPriorityClassName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+value: {{ .Values.scheduling.priorityClasses.workerValue }}
+globalDefault: false
+description: FlakeGraph queue workers; lower than graph finalization and model serving.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ include "flakegraph.sparkPriorityClassName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+value: {{ .Values.scheduling.priorityClasses.sparkValue }}
+globalDefault: false
+description: FlakeGraph Spark drivers and executors; may preempt drained queue workers.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ include "flakegraph.servingPriorityClassName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+value: {{ .Values.scheduling.priorityClasses.servingValue }}
+globalDefault: false
+description: FlakeGraph gateway, placement, and document parsing; the path every consumer takes.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ include "flakegraph.modelPriorityClassName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+value: {{ .Values.scheduling.priorityClasses.modelValue }}
+globalDefault: false
+description: FlakeGraph model servers; retained while queue and Spark capacity changes.
+{{- end }}

@@ -1,0 +1,3 @@
+Alice Smith works at Acme Corp in Copenhagen.
+Acme Corp builds Medicine Graph for Contoso Health.
+Copenhagen hosts Contoso Health teams.

@@ -1,0 +1,157 @@
+{
+  "configuration": {
+    "config_digest": "d6ef96abd3bb8bec4eec71dfc3e2dbc82424d32b9714d7c82d40abbce4b07c6e",
+    "ontology_path": "data/martial_arts/ontology.yaml",
+    "ontology_sha256": "16f73a1a66b45d09474bfbf52773a17b2f907efa9de77905d421c547ca4633f6",
+    "path": null,
+    "prompt_revision": "two-pass-extraction-v30",
+    "sha256": "45a3b62f622d9ec3f66eec4b2246c8b780093a01522496c8bc09a532c8dfe48d"
+  },
+  "dataset": {
+    "document_count": 10,
+    "evidence_observation_count": 109,
+    "expected_entity_count": 74,
+    "expected_relation_count": 104,
+    "gold_path": "data/martial_arts/gold.json",
+    "gold_sha256": "3eb2939b844dce416d9bed00e335a782dfdae8581df32f819999f2f0d5d3a799",
+    "id": "martial-arts-history-v1",
+    "license": "CC0-1.0",
+    "manifest_path": "data/martial_arts/manifest.jsonl",
+    "manifest_sha256": "26966f45dda5ce8739650f3f0988dce4448e0cc882db248ee18d97e0b7e8f8c6",
+    "version": "1.0.0"
+  },
+  "hardware": {
+    "accelerator": "NVIDIA GB10",
+    "architecture": "arm64",
+    "cpu_control_nodes": 0,
+    "model_nodes": 1,
+    "single_node_cluster": true,
+    "unified_memory_gib_per_node": 128
+  },
+  "measured_at_utc": "2026-08-27T15:09:42Z",
+  "measurements": {
+    "accepted_run_count": 1,
+    "consumption": {
+      "completion_tokens": 207712,
+      "gateway_requests": 266,
+      "note": "LiteLLM spend records, cumulative across this fleet's runs on 2026-08-27",
+      "prompt_tokens": 1461740
+    },
+    "extraction_documents_per_minute": 0.172,
+    "output": {
+      "aggregation": "single_run",
+      "chunks": 32,
+      "communities": 9,
+      "documents": 10,
+      "edge_observations": 171,
+      "entities": 188,
+      "evidence_records": 483,
+      "relations": 147
+    },
+    "quality": {
+      "acceptance_thresholds_met": true,
+      "component_count": 1,
+      "entity_f1": null,
+      "entity_precision": null,
+      "entity_recall": 1.0,
+      "evidence_support_rate": 0.967,
+      "information_retention": 1.0,
+      "isolate_ratio": 0.0,
+      "precision_note": "The evaluator reports precision as not applicable under reference entity coverage and induced relation coverage, so precision and F1 are null rather than assumed. Recall is scored against the same gold graph the earlier rows used.",
+      "triple_f1": null,
+      "triple_precision": null,
+      "triple_recall": 1.0,
+      "two_hop_recoverability": 1.0
+    },
+    "stability": {
+      "mean_node_jaccard": null,
+      "mean_triple_jaccard": null,
+      "minimum_node_jaccard": null,
+      "minimum_triple_jaccard": null,
+      "pair_count": 0
+    },
+    "stage_timing_seconds": {
+      "document_context": 7.9,
+      "extraction": 3479.3,
+      "preparation": 0.3,
+      "spark_finalization": null
+    },
+    "throughput_documents_per_minute": null,
+    "timing_seconds": {
+      "interrupted": true,
+      "maximum": 6553.63,
+      "mean": 6553.63,
+      "median": 6553.63,
+      "minimum": 6553.63,
+      "runs": [
+        6553.63
+      ]
+    }
+  },
+  "models": {
+    "embedding": {
+      "dimension": 384,
+      "name": "sentence-transformers/all-MiniLM-L6-v2",
+      "provider": "sentence_transformers",
+      "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+    },
+    "llm": {
+      "name": "unsloth/Qwen3.8-27B-NVFP4",
+      "parameter_size": "27B dense",
+      "provider": "vllm_local",
+      "quantization": "NVFP4",
+      "revision": "9e3d73c76eddb75f795cc24ccfbc5affe41c66bd",
+      "served_through": "LiteLLM alias llm-batch"
+    }
+  },
+  "protocol": {
+    "cache_disabled": true,
+    "compaction_tasks": 20,
+    "completed_repeats": 1,
+    "document_context_tasks": 10,
+    "entity_window_tasks": 12,
+    "extraction_worker_maximum": 8,
+    "failed_task_attempts": 0,
+    "finalization_tasks": 1,
+    "preparation_tasks": 10,
+    "prepare_worker_maximum": 8,
+    "relation_window_tasks": 12,
+    "requested_repeats": 1,
+    "run_ids": [
+      "mah-qwen38-20260827-152024"
+    ],
+    "spark_executor_cores": 4,
+    "spark_executors": 1
+  },
+  "result_id": "mah-v1-qwen38-27b-nvfp4-vllm-k8s-1x-gb10-20260827",
+  "runtime": {
+    "execution": "Kubernetes",
+    "graphframes_version": "0.12.1",
+    "inference_path": "LiteLLM, Envoy with the llm-d endpoint picker, per-pod auth sidecar",
+    "ocr_provider": "fallback (builtin_text, mineru_api)",
+    "orchestrator": "k3s 1.36.3+k3s1",
+    "python_version": "3.14.6",
+    "serving_software": "NVIDIA vLLM",
+    "serving_version": "26.05.post1",
+    "spark_version": "4.1.2"
+  },
+  "schema_version": 1,
+  "serving_configuration": {
+    "attention_backend": "flashinfer",
+    "gpu_memory_utilization": 0.5,
+    "kv_cache_dtype": "fp8",
+    "maximum_batched_tokens": 32768,
+    "maximum_model_length": 65536,
+    "maximum_sequences_per_replica": 11,
+    "measured_decode_tokens_per_second": 10.7,
+    "model_replicas": 1,
+    "moe_backend": "marlin",
+    "quantization_method": "compressed-tensors",
+    "scheduling_policy": "priority",
+    "speculative_method": null,
+    "speculative_tokens": 0,
+    "thinking_enabled": false
+  },
+  "status": "partial",
+  "status_reason": "One complete uncached queue-backed repetition succeeded with no task retries, so this record carries no stability estimate. Extraction ran uninterrupted; finalization did not. It stalled twice on operator-fixable faults - a Spark image predating the coordination schema, then a missing provider Secret the executors reference - and the wall time below spans both stalls. Use extraction_seconds for throughput, not the total."
+}

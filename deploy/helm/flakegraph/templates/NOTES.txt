@@ -1,0 +1,90 @@
+FlakeGraph worker pools are configured for release {{ .Release.Name }}.
+{{- if .Values.database.bootstrap.enabled }}
+The database bootstrap hook completed before Helm marked this release ready.
+{{- if .Values.autoscaling.enabled }}
+KEDA can now read the dependency-aware worker-demand view.
+{{- end }}
+{{- else }}
+Database bootstrap was disabled. Ensure the FlakeGraph coordination schema exists
+before submitting work or enabling queue-driven autoscaling.
+{{- end }}
+
+{{- if .Values.autoscaling.enabled }}
+
+Queue-driven autoscaling is on: KEDA scales each worker pool between its
+declared minimum and maximum from the PostgreSQL task queue.
+{{- else }}
+
+Queue-driven autoscaling is OFF (autoscaling.enabled=false): each worker pool
+runs its fixed replica count ({{ range $name, $pool := .Values.workers }}{{ $name }}={{ $pool.replicas }} {{ end }}) and
+never scales to zero. Install KEDA (https://keda.sh) and set autoscaling.enabled=true
+to scale the pools from queue depth.
+{{- end }}
+
+Secrets this release references (all operator-created; {{ if .Values.secretsCheck.enabled }}checked by the
+pre-install hook{{ else }}NOT checked - secretsCheck.enabled=false{{ end }}):
+{{- range include "flakegraph.referencedSecrets" . | fromJsonArray }}
+  secret/{{ .name }}{{ with .key }} key {{ . }}{{ end }} - {{ .purpose }}
+{{- end }}
+
+Submit from a trusted client that can reach the same PostgreSQL service:
+  flakegraph distributed submit --config /path/to/config.yaml --owner name@example.com
+
+Inspect progress:
+  flakegraph distributed status --run-id <run-id> --config /path/to/config.yaml
+
+{{- if .Values.modelServing.enabled }}
+
+Local model serving is enabled. Check replicas and the served model:
+  kubectl -n {{ .Release.Namespace }} rollout status statefulset/{{ include "flakegraph.modelServingName" . }} --timeout=60m
+
+Every engine pod runs behind an authenticating sidecar. Map bearer keys to
+consumer classes in Secret {{ .Values.modelServing.sidecar.keySecret.name }}, key
+{{ .Values.modelServing.sidecar.keySecret.key }}; an unlisted key is refused and
+an unlisted class is served last.
+{{- else if include "flakegraph.engineUpstream" . }}
+
+Local model serving is disabled, but the gateway forwards to the in-cluster
+engines (gateway.litellm.upstream.type=engine), so inference has nowhere to go.
+Either enable modelServing, or point the gateway at an external provider with
+gateway.litellm.upstream.type=external and a models list.
+{{- end }}
+{{- if .Values.gateway.enabled }}
+
+Every consumer resolves one URL: {{ include "flakegraph.gatewayEndpoint" . }}
+Priority class is which alias a virtual key may call —
+{{ .Values.gateway.litellm.aliases.interactive }}, {{ .Values.gateway.litellm.aliases.dev }}, or {{ .Values.gateway.litellm.aliases.batch }}.
+The worker pools hold the batch key, so pipeline consumption is metered beside
+every interactive tenant.
+{{- if include "flakegraph.engineUpstream" . }}
+
+The endpoint picker selects engine pods by label, so no Gateway API Inference
+Extension CRDs are required.
+{{- else }}
+
+The gateway forwards every alias to an external provider
+({{ join ", " .Values.gateway.litellm.upstream.models }}{{ with .Values.gateway.litellm.upstream.apiBase }} at {{ . }}{{ end }}).
+No placement router or engine is rendered, and priority bands do not apply.
+{{- end }}
+{{- else }}
+
+The gateway is disabled. Set llm.endpoint, llm.model and llm.api_key in the
+mounted FlakeGraph config and map the credential through providerSecret.env.
+{{- end }}
+{{- if .Values.documentParsing.enabled }}
+
+Documents are parsed through {{ include "flakegraph.ocrShimEndpoint" . }}, which
+holds and orders work so the parsing pool never returns 409 to a client.
+{{- end }}
+{{- if and .Values.ingress.enabled .Values.ingress.authProxy.enabled (eq .Values.ingress.controller "nginx") .Values.ingress.authProxy.machineKeys.enabled }}
+
+ingress.authProxy.machineKeys is not rendered on ingress-nginx: routing on a
+request header needs configuration snippets, which that controller disables by
+default. Console API keys work from inside the cluster or through Traefik.
+{{- end }}
+{{- if and .Values.monitoring.enabled (not (include "flakegraph.monitoringInNamespace" .)) }}
+
+The monitoring stack runs in namespace {{ include "flakegraph.monitoringNamespace" . }}, so Grafana
+is not published behind this release's ingress; the dashboards and the database
+datasource were written into that namespace for its sidecars to load.
+{{- end }}

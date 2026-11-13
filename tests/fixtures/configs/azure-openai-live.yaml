@@ -1,0 +1,31 @@
+runtime:
+  runtime: local
+job:
+  job_id: local-azure-smoke
+  graph_id: local-azure-smoke-graph
+files:
+  source: local
+  input_path: data/martial_arts/files/smoke.txt
+ocr:
+  provider: builtin_text
+llm:
+  provider: azure_openai
+  endpoint: ${KG_LLM_ENDPOINT}
+  model: ${KG_LLM_MODEL}
+  api_key: ${KG_LLM_API_KEY}
+  api_version: ${KG_LLM_API_VERSION}
+embedding:
+  provider: azure_openai
+  endpoint: ${KG_EMBED_ENDPOINT}
+  model: ${KG_EMBED_MODEL}
+  api_key: ${KG_EMBED_API_KEY}
+  api_version: ${KG_EMBED_API_VERSION}
+  dimension: 1536
+graph:
+  chunk_token_size: 120
+  chunk_token_overlap: 20
+  max_chunks_per_llm_call: 1
+  gleaning_max_passes: 0
+writer:
+  provider: local_artifacts
+  output_path: out/local-azure-smoke

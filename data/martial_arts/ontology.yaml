@@ -1,0 +1,167 @@
+name: martial-arts-history
+description: A profile for people, lineages, systems, institutions, techniques, places, and periods in martial-arts history.
+mode: hybrid
+entity_types:
+  - name: PERSON
+    description: A named historical or contemporary individual.
+  - name: MARTIAL_ART
+    description: A named martial art, combat sport, fighting system, recognizable style, or named technical lineage.
+    aliases: [style, system, combat_sport]
+  - name: SCHOOL
+    description: A named school, dojo, gym, academy, or other teaching institution; abstract lineages belong under MARTIAL_ART.
+  - name: ORGANIZATION
+    description: A named federation, association, institution, military unit, or governing body.
+  - name: LOCATION
+    description: A named country, region, city, island, venue, or geographic place.
+  - name: EVENT
+    description: A named competition, demonstration, conflict, reform, or other historical occurrence.
+  - name: TIME_PERIOD
+    description: A year, date range, dynasty, era, or historical period when it participates in a claim.
+  - name: TECHNIQUE
+    description: A named physical technique, weapon method, tactic, or technical family.
+  - name: PRACTICE
+    description: A named training, ranking, ritual, rule, or pedagogical practice.
+  - name: WORK
+    description: A named manual, book, film, record, ruleset, curriculum, code, law, or other authored artifact.
+  - name: CONCEPT
+    description: A named educational ideal, cultural value, social goal, doctrine, or historical concept discussed as a subject.
+relation_types:
+  - name: FOUNDED_BY
+    description: The source school or organization was explicitly founded or established by the target person or organization. Use DEVELOPED_BY for a martial art that a person created, organized, codified, or systematized.
+    source_types: [SCHOOL, ORGANIZATION]
+    target_types: [PERSON, ORGANIZATION]
+    aliases: [established_by, created_by]
+    evidence_cues: ['\b(?:founded|established|created|formed)\b']
+  - name: DEVELOPED_BY
+    description: The target explicitly developed or systematized the source martial art, technique, or practice; promotion or presentation alone is insufficient.
+    source_types: [MARTIAL_ART, TECHNIQUE, PRACTICE]
+    target_types: [PERSON, ORGANIZATION]
+    aliases: [systematized_by, codified_by]
+    evidence_cues: ['\b(?:developed|systemati[sz]ed|codified|organ(?:iz|is)ed|created)\b']
+  - name: DERIVED_FROM
+    description: The source art, technique, or school is explicitly described as descending or deriving from the target.
+    source_types: [MARTIAL_ART, TECHNIQUE, SCHOOL]
+    target_types: [MARTIAL_ART, TECHNIQUE, SCHOOL]
+    aliases: [descended_from, evolved_from]
+    evidence_cues: ['\b(?:derived|descended|evolved|grew)\s+from\b']
+  - name: INFLUENCED_BY
+    description: The source is explicitly described as influenced by the target without asserting direct descent.
+    source_types: [MARTIAL_ART, TECHNIQUE, PRACTICE, SCHOOL]
+    target_types: [MARTIAL_ART, TECHNIQUE, PRACTICE, SCHOOL]
+    aliases: [inspired_by, shaped_by]
+    evidence_cues: ['\b(?:influenced|inspired)\b|\bshaped\s+by\b']
+  - name: STUDIED_UNDER
+    description: The source person explicitly studied or trained under the target person.
+    source_types: [PERSON]
+    target_types: [PERSON]
+    inverse: TAUGHT
+    aliases: [trained_under, student_of]
+    evidence_cues: ['\b(?:studied|trained)\s+(?:directly\s+)?under\b']
+  - name: TAUGHT
+    description: The source person explicitly taught or instructed the target person.
+    source_types: [PERSON]
+    target_types: [PERSON]
+    inverse: STUDIED_UNDER
+    aliases: [instructed, teacher_of]
+    evidence_cues: ['\b(?:taught|instructed|trained)\b']
+  - name: PRACTICED_IN
+    description: The source art or practice is explicitly practiced in or historically associated with the target place.
+    source_types: [MARTIAL_ART, PRACTICE]
+    target_types: [LOCATION]
+    aliases: [associated_with_place]
+    evidence_cues: ['\b(?:practiced|performed|historically\s+associated)\s+(?:in|throughout|with)\b']
+  - name: ORIGINATED_IN
+    description: The source art, technique, school, or organization is explicitly stated to have originated in the target place or period.
+    source_types: [MARTIAL_ART, TECHNIQUE, SCHOOL, ORGANIZATION]
+    target_types: [LOCATION, TIME_PERIOD]
+    aliases: [originates_in, emerged_in]
+    evidence_cues: ['\b(?:originated|emerged|developed|formed)\s+in\b|\btraces?\s+(?:its\s+)?origins?\s+to\b']
+  - name: LOCATED_IN
+    description: The source school, organization, or event is explicitly located in the target place.
+    source_types: [SCHOOL, ORGANIZATION, EVENT]
+    target_types: [LOCATION]
+    aliases: [based_in, situated_in]
+    evidence_cues: ['\b(?:located|based|situated)\s+(?:in|at)\b']
+  - name: USES_TECHNIQUE
+    description: The source art or practice explicitly includes or uses the target technique.
+    source_types: [MARTIAL_ART, PRACTICE]
+    target_types: [TECHNIQUE]
+    aliases: [includes_technique, employs]
+    evidence_cues: ['\b(?:uses?|includes?|incorporates?|combines?|features?|employs?)\b']
+  - name: HAS_PRACTICE
+    description: The source art, school, or organization explicitly includes the target training or cultural practice.
+    source_types: [MARTIAL_ART, SCHOOL, ORGANIZATION]
+    target_types: [PRACTICE]
+    aliases: [uses_practice, follows_practice]
+    evidence_cues: ['\b(?:uses?|includes?|incorporates?)\b|\bcent(?:er|re)s?\s+on\b|\bpracticed\s+through\b']
+  - name: PART_OF
+    description: The source is explicitly a component, branch, member, or event of the target.
+    aliases: [belongs_to, branch_of, member_of]
+    evidence_cues: ['\b(?:part|component|branch|member)\s+of\b']
+  - name: DOCUMENTED_IN
+    description: The source person, art, technique, event, or practice is explicitly documented in the target work.
+    target_types: [WORK]
+    aliases: [described_in, recorded_in]
+    evidence_cues: ['\b(?:documented|described|recorded)\s+in\b']
+  - name: OCCURRED_IN
+    description: The source event explicitly occurred in the target place or time period.
+    source_types: [EVENT]
+    target_types: [LOCATION, TIME_PERIOD]
+    aliases: [took_place_in]
+    evidence_cues: ['\b(?:occurred|took\s+place|held)\b']
+  - name: PRECEDED
+    description: The source event, period, art, or practice explicitly came before the target.
+    source_types: [EVENT, TIME_PERIOD, MARTIAL_ART, PRACTICE]
+    target_types: [EVENT, TIME_PERIOD, MARTIAL_ART, PRACTICE]
+    inverse: SUCCEEDED
+    aliases: [came_before]
+    evidence_cues: ['\bpreceded\b|\bcame\s+before\b']
+  - name: SUCCEEDED
+    description: The source event, period, art, or practice explicitly followed or replaced the target.
+    source_types: [EVENT, TIME_PERIOD, MARTIAL_ART, PRACTICE]
+    target_types: [EVENT, TIME_PERIOD, MARTIAL_ART, PRACTICE]
+    inverse: PRECEDED
+    aliases: [followed, replaced]
+    evidence_cues: ['\b(?:succeeded|followed|replaced)\b']
+  - name: TAUGHT_AT
+    description: The source person, art, or practice was explicitly taught at the target institution or place.
+    source_types: [PERSON, MARTIAL_ART, PRACTICE]
+    target_types: [SCHOOL, ORGANIZATION, LOCATION]
+    aliases: [instructed_at]
+    evidence_cues: ['\b(?:taught|instructed)\s+at\b']
+  - name: POPULARIZED_BY
+    description: The source art or practice was explicitly presented, promoted, or popularized by the target without crediting development.
+    source_types: [MARTIAL_ART, PRACTICE]
+    target_types: [PERSON, ORGANIZATION]
+    aliases: [promoted_by, presented_by]
+    evidence_cues: ['\b(?:presented|promoted|populari[sz]ed)\s+by\b']
+  - name: GOVERNED_BY
+    description: The source art, practice, or event was explicitly regulated, sanctioned, or governed by the target body or ruleset.
+    source_types: [MARTIAL_ART, PRACTICE, EVENT]
+    target_types: [ORGANIZATION, WORK]
+    aliases: [regulated_by, sanctioned_by]
+    evidence_cues: ['\b(?:regulated|governed|sanctioned|administered)\s+(?:by|through)\b']
+  - name: AUTHORED_BY
+    description: The source work was explicitly written, authored, compiled, or edited by the target.
+    source_types: [WORK]
+    target_types: [PERSON, ORGANIZATION]
+    aliases: [written_by, compiled_by]
+    evidence_cues: ['\b(?:written|authored|compiled|edited)\s+by\b']
+  - name: PRESENTED_AT
+    description: The source person, art, or practice was explicitly presented, demonstrated, or appeared at the target event.
+    source_types: [PERSON, MARTIAL_ART, PRACTICE]
+    target_types: [EVENT]
+    aliases: [demonstrated_at]
+    evidence_cues: ['\b(?:presented|demonstrated|featured)\s+at\b']
+  - name: RECOGNIZED_BY
+    description: The source art, practice, or event was explicitly recognized or inscribed by the target organization.
+    source_types: [MARTIAL_ART, PRACTICE, EVENT, ORGANIZATION]
+    target_types: [ORGANIZATION]
+    aliases: [inscribed_by]
+    evidence_cues: ['\b(?:recognized|inscribed)\s+by\b']
+  - name: EMPHASIZES
+    description: The source art, school, organization, or practice explicitly emphasizes the target named concept or social goal.
+    source_types: [MARTIAL_ART, SCHOOL, ORGANIZATION, PRACTICE]
+    target_types: [CONCEPT]
+    aliases: [centers_on, promotes]
+    evidence_cues: ['\b(?:emphasi[sz](?:es|ed)|promotes?)\b|\bcent(?:er|re)s?\s+on\b|\bframed\s+as\b']

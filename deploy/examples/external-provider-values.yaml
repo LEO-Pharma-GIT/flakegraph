@@ -1,0 +1,81 @@
+# Profile: no in-cluster engine. The gateway forwards every alias to an
+# OpenAI-compatible provider elsewhere - a hosted API, a vLLM or Ollama server
+# on another machine, a cloud endpoint - so the cluster needs no GPU at all for
+# inference. Workers, the console, the gateway and (optionally) the parsing
+# pool run as usual; what changes is where `llm-batch` and friends resolve.
+#
+# The provider key lives in a Secret (here `flakegraph-upstream`, key
+# `api-key`), never in values. Spell models the way LiteLLM names providers:
+# openai/gpt-4o, azure/<deployment>, anthropic/claude-sonnet-4-5,
+# hosted_vllm/<model> for a vLLM server, ollama/<tag> for Ollama.
+image:
+  repository: registry.example.com/flakegraph
+  tag: "0.1.0"
+
+# A managed PostgreSQL: a Secret holding its URI under `uri`. Point
+# database.secretName at it; the CloudNativePG operator is not needed.
+database:
+  secretName: flakegraph-postgres-app
+  secretKey: uri
+
+gateway:
+  litellm:
+    upstream:
+      type: external
+      # Empty for a provider LiteLLM addresses itself (OpenAI, Azure with
+      # AZURE_API_BASE in extraEnv, Anthropic). Set for a self-hosted server.
+      apiBase: https://inference.example.com/v1
+      apiKeySecret:
+        name: flakegraph-upstream
+        key: api-key
+      models:
+        - hosted_vllm/Qwen/Qwen3-8B
+    # Any further routes: an embedding model behind the same gateway, so the
+    # workers reach both through one URL and one virtual key.
+    extraModelList:
+      - model_name: embeddings
+        litellm_params:
+          model: hosted_vllm/Qwen/Qwen3-Embedding-0.6B
+          api_base: https://inference.example.com/v1
+          api_key: os.environ/FLAKEGRAPH_UPSTREAM_API_KEY
+    replicas: 1
+    autoscaling:
+      enabled: false
+
+# Nothing to place across: the engines are not here.
+modelServing:
+  enabled: false
+
+# Born-digital PDFs are read in the worker; scans still go to the parsing
+# pool, which runs on CPU here. Set documentParsing.enabled=false and
+# ocr.provider=builtin_text in the mounted config to drop it entirely.
+documentParsing:
+  mineru:
+    replicas: 1
+    device:
+      mode: cpu
+    autoscaling:
+      enabled: false
+  shim:
+    replicas: 1
+    autoscaling:
+      enabled: false
+
+# An extract pod keeps eight model requests in flight, so replicas x 8 is
+# what the provider must accept at once. With autoscaling on, the chart sizes
+# the pool from workers.extract.autoscaling.providerSequences instead.
+workers:
+  prepare:
+    replicas: 2
+  extract:
+    replicas: 2
+  finalize:
+    replicas: 1
+
+# Fixed replica counts above; set true once KEDA is installed.
+autoscaling:
+  enabled: false
+
+# The console needs a protected gate, or an explicitly isolated operator address.
+controlPlane:
+  enabled: false

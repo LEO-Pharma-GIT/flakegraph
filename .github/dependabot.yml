@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # Keep the uv lockfile current while preserving reviewable, tested update PRs.
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python-runtime:
+        patterns: ["*"]
+
+  # Action tags are resolved to immutable SHAs in the workflow after review.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  # Track the pinned Python base image independently from Python packages.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly

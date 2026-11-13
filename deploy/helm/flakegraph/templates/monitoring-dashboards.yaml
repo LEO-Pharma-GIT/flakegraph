@@ -1,0 +1,28 @@
+{{- if .Values.monitoring.enabled }}
+{{- /*
+One ConfigMap per dashboard in the chart's dashboards/ directory. The stack's
+sidecar watches for the label, files each into the folder the annotation names,
+and reloads on change, so a dashboard ships with the release it describes and
+rolls back with it. A dashboard edited in the UI is overwritten on the next
+sync: the JSON here is the source, and edits belong in it.
+*/}}
+{{- range $path, $bytes := .Files.Glob "dashboards/*.json" }}
+{{- $file := base $path }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-dashboard-%s" (include "flakegraph.fullname" $) (trimSuffix ".json" $file | lower) | trunc 63 | trimSuffix "-" }}
+  # Where the stack's dashboard sidecar looks, which is its own namespace.
+  namespace: {{ include "flakegraph.monitoringNamespace" $ }}
+  labels:
+    {{- include "flakegraph.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: monitoring
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: FlakeGraph
+data:
+  {{ $file }}: |-
+    {{- $bytes | toString | nindent 4 }}
+{{- end }}
+{{- end }}

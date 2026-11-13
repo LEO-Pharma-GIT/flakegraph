@@ -1,0 +1,25 @@
+runtime:
+  runtime: local
+job:
+  job_id: local-smoke
+  graph_id: local-smoke-graph
+files:
+  source: local
+  input_path: data/martial_arts/files/smoke.txt
+ocr:
+  provider: builtin_text
+llm:
+  provider: fake
+  model: fake-graph-extractor
+embedding:
+  provider: hash
+  model: hash-embedding
+  dimension: 64
+graph:
+  chunk_token_size: 120
+  chunk_token_overlap: 20
+  max_chunks_per_llm_call: 1
+  gleaning_max_passes: 0
+writer:
+  provider: local_artifacts
+  output_path: out/local-smoke

@@ -1,0 +1,44 @@
+.DS_Store
+.coverage
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+.venv-*/
+.claude/
+.codex/
+__pycache__/
+*.egg-info/
+dist/
+build/
+htmlcov/
+out/
+output/
+.flakegraph/
+data/deep_learning_papers/files/
+data/deep_learning_papers/manifest.jsonl
+tmp/
+
+# Operator-specific cluster values may contain private host labels, registry
+# names, storage classes, endpoints, or secret references. Public examples live
+# under deploy/examples; real fleet overrides stay untracked here.
+deploy/private/
+*.private.yaml
+
+# Secrets by their usual names, so a stray copy anywhere in the tree is not
+# committable: dotenv files, private keys, kubeconfigs and anything that
+# calls itself a secrets file.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+kubeconfig*
+*secrets*
+!**/*secrets*.example
+
+# stage-artifacts.sh --local-only drops the k3s binary and its installer here.
+deploy/spark/k3s
+deploy/spark/install.sh

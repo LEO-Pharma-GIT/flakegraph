@@ -1,0 +1,96 @@
+{{- if .Values.database.cloudNativePG.enabled }}
+{{- include "flakegraph.requireApi" (dict "root" . "api" "postgresql.cnpg.io/v1/Cluster" "feature" "database.cloudNativePG.enabled" "install" "the CloudNativePG operator, https://cloudnative-pg.io") }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Values.database.cloudNativePG.clusterName }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+spec:
+  instances: {{ .Values.database.cloudNativePG.instances }}
+  {{- with .Values.database.cloudNativePG.imageName }}
+  imageName: {{ . }}
+  {{- end }}
+  primaryUpdateStrategy: unsupervised
+  # A disruption budget can only keep a replica available while another one
+  # exists. With a single instance the operator's budget protects nothing and
+  # wedges every node drain that reaches the primary, so it is only asked for
+  # when there is a standby to keep.
+  enablePDB: {{ gt (int .Values.database.cloudNativePG.instances) 1 }}
+  enableSuperuserAccess: false
+  postgresql:
+    parameters:
+      max_connections: {{ .Values.database.cloudNativePG.maxConnections | quote }}
+  {{- if .Values.monitoring.enabled }}
+  monitoring:
+    # The operator's exporter, scraped through the PodMonitor below; the
+    # operator's own is deprecated. The custom queries turn the coordination
+    # tables into series: queue depth per stage and band, failures, expired
+    # leases, demand - the numbers KEDA scales on, made visible. They run as
+    # the exporter's own role, a member of pg_monitor, which the coordination
+    # schema grants column-level reads for; the Grafana role below is not
+    # involved.
+    enablePodMonitor: false
+    customQueriesConfigMap:
+      - name: {{ include "flakegraph.postgresQueriesName" . }}
+        key: queries.yaml
+  managed:
+    roles:
+      # What Grafana signs in as. Read-only over every table, including ones
+      # a later schema version adds, so a dashboard never needs a grant to
+      # follow a migration. The password lives in a Secret the chart keeps
+      # stable across upgrades; the operator reconciles the role to match it.
+      - name: {{ .Values.monitoring.database.role }}
+        login: true
+        inRoles: [pg_read_all_data]
+        passwordSecret:
+          name: {{ .Values.monitoring.database.secretName }}
+        ensure: present
+  {{- end }}
+  bootstrap:
+    initdb:
+      database: {{ .Values.database.cloudNativePG.database }}
+      owner: {{ .Values.database.cloudNativePG.owner }}
+  storage:
+    size: {{ .Values.database.cloudNativePG.storage.size }}
+    {{- with .Values.database.cloudNativePG.storage.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+  resources:
+    {{- toYaml .Values.database.cloudNativePG.resources | nindent 4 }}
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: {{ .Values.database.cloudNativePG.podAntiAffinityType }}
+    topologyKey: kubernetes.io/hostname
+    {{- with .Values.database.cloudNativePG.nodeSelector }}
+    nodeSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.database.cloudNativePG.tolerations }}
+    tolerations:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  {{- with .Values.database.cloudNativePG.topologySpreadConstraints }}
+  topologySpreadConstraints:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- if .Values.monitoring.enabled }}
+---
+# Every instance's exporter, primary and standbys alike: the custom queries
+# run on the primary only, and the operator's own series cover replication.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ printf "%s-instances" .Values.database.cloudNativePG.clusterName }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  selector:
+    matchLabels:
+      cnpg.io/cluster: {{ .Values.database.cloudNativePG.clusterName }}
+      cnpg.io/podRole: instance
+  podMetricsEndpoints:
+    - port: metrics
+{{- end }}
+{{- end }}

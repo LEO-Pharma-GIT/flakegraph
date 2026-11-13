@@ -1,0 +1,51 @@
+runtime:
+  runtime: local
+job:
+  job_id: local-generic-http-ocr
+  graph_id: local-generic-http-ocr
+files:
+  source: local
+  input_path: data/martial_arts/files
+  include_globs:
+    - "**/*.pdf"
+ocr:
+  provider: generic_http
+  language: en
+generic_http_ocr:
+  endpoint: ${KG_GENERIC_HTTP_OCR_ENDPOINT}
+  api_key: ${KG_GENERIC_HTTP_OCR_API_KEY}
+  file_field: file
+  result_path: result
+  pages_path: pages
+  page_number_path: page_number
+  markdown_path: markdown
+  raw_text_path: raw_text
+  detected_language_path: detected_language
+  blocks_path: blocks
+  block_kind_path: kind
+  block_text_path: text
+  block_bbox_path: bbox
+  block_confidence_path: confidence
+  block_metadata_path: metadata
+  assets_path: assets
+  asset_kind_path: kind
+  asset_uri_path: uri
+  asset_page_number_path: page_number
+  asset_confidence_path: confidence
+  asset_metadata_path: metadata
+llm:
+  provider: openai_compatible
+  endpoint: ${KG_LLM_ENDPOINT}
+  model: ${KG_LLM_MODEL}
+  api_key: ${KG_LLM_API_KEY}
+embedding:
+  provider: sentence_transformers
+  model: all-MiniLM-L6-v2
+  dimension: 384
+  device: ${KG_EMBED_DEVICE}
+writer:
+  provider: local_artifacts
+  output_path: out/local-generic-http-ocr
+cache:
+  provider: local
+  path: out/cache/local-generic-http-ocr

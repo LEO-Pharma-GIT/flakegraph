@@ -1,0 +1,62 @@
+# Snowflake App Runtime definition for the FlakeGraph console.
+#
+# Deploy with `bun scripts/deploy-snowflake.ts -c <connection>`, not with
+# `snow app deploy` in this directory. The console builds run configurations
+# from configs/ at the repository root, which is outside this directory; the
+# script stages the console and those configs together, and fills the account
+# names below from FLAKEGRAPH_SNOWFLAKE_* environment variables so this file
+# stays account-neutral.
+version: 2
+
+name: FLAKEGRAPH
+database: FLAKEGRAPH
+schema: PUBLIC
+query_warehouse: COMPUTE_WH
+label: FlakeGraph
+description: Ingest documents, follow their processing, and explore the knowledge graphs they produce.
+
+health_check: /api/health
+# Uploads wait on local disk until their run is submitted, so every request
+# has to reach the same instance.
+min_instances: 1
+max_instances: 1
+auto_suspend_secs: 3600
+
+environment_variables:
+  # Says the Sf-Context headers are Snowflake's ingress speaking. Nothing else
+  # may turn that on: outside Snowflake a caller writes those headers itself.
+  - name: FLAKEGRAPH_SNOWFLAKE_HOSTED
+    value: "1"
+  - name: FLAKEGRAPH_SNOWFLAKE_WAREHOUSE
+    value: COMPUTE_WH
+  - name: NEXT_TELEMETRY_DISABLED
+    value: "1"
+
+# The builder image has npm but not bun; the bun package from npm installs the
+# lockfile exactly as local development does.
+install:
+  commands:
+    - [npx, --yes, bun@1.4.3, install, --frozen-lockfile]
+build:
+  commands:
+    - [npx, --yes, bun@1.4.3, run, build]
+    # A standalone build serves neither its static assets nor public/ unless
+    # they are copied in beside its server.
+    - [cp, -R, .next/static, .next/standalone/.next/static]
+    - [cp, -R, public, .next/standalone/public]
+    # The standalone server carries the modules it uses. The installed tree and
+    # the build cache would otherwise ship with the package and be unpacked on
+    # every start.
+    - [rm, -rf, node_modules, .next/cache]
+run:
+  command: [node, .next/standalone/server.js]
+
+ignore:
+  - node_modules
+  - .next
+  - .env*
+  - test-results
+  - playwright-report
+  - coverage
+  - e2e
+  - "*.tsbuildinfo"

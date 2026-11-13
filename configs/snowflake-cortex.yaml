@@ -1,0 +1,55 @@
+runtime:
+  runtime: spcs
+job:
+  job_id: snowflake-cortex
+  graph_id: snowflake-cortex-graph
+  use_file_queue: true
+  lease_owner: ${KG_JOB_LEASE_OWNER}
+  lease_seconds: 900
+  file_batch_size: 100
+files:
+  source: snowflake_stage
+  stage_prefix: ${KG_STAGE_PREFIX}
+ocr:
+  provider: snowflake_cortex
+  snowflake_parse_mode: OCR
+  snowflake_page_split: true
+  snowflake_extract_images: false
+llm:
+  provider: snowflake_cortex
+  model: ${KG_LLM_MODEL}
+embedding:
+  provider: snowflake_cortex
+  model: ${KG_EMBED_MODEL}
+  dimension: ${KG_EMBED_DIM}
+writer:
+  provider: snowflake_bulk
+cache:
+  provider: snowflake
+snowflake:
+  user: ${KG_SNOWFLAKE_USER}
+  password: ${KG_SNOWFLAKE_PASSWORD}
+  authenticator: ${KG_SNOWFLAKE_AUTHENTICATOR}
+  database: ${KG_SNOWFLAKE_DATABASE}
+  schema: ${KG_SNOWFLAKE_SCHEMA}
+  role: ${KG_SNOWFLAKE_ROLE}
+  warehouse: ${KG_SNOWFLAKE_WAREHOUSE}
+  stage: ${KG_SNOWFLAKE_STAGE}
+  bulk_stage: ${KG_SNOWFLAKE_BULK_STAGE}
+  image_repository: ${KG_SNOWFLAKE_IMAGE_REPOSITORY}
+  image_name: ${KG_SNOWFLAKE_IMAGE_NAME}
+  image_digest: ${KG_SNOWFLAKE_IMAGE_DIGEST}
+  compute_pool: ${KG_SNOWFLAKE_COMPUTE_POOL}
+  compute_pool_instance_family: ${KG_SNOWFLAKE_COMPUTE_POOL_INSTANCE_FAMILY}
+  compute_pool_min_nodes: 1
+  compute_pool_max_nodes: 1
+  service_name: ${KG_SNOWFLAKE_SERVICE_NAME}
+  service_spec_stage: ${KG_SNOWFLAKE_SERVICE_SPEC_STAGE}
+  # These defaults fit Snowflake's smallest CPU_X64_XS compute-pool node. Cortex
+  # performs the model work, so the FlakeGraph container only needs orchestration
+  # and document-processing capacity.
+  service_cpu_request: "500m"
+  service_cpu_limit: "1"
+  service_memory_request: 3Gi
+  service_memory_limit: 5Gi
+  service_gpu_count: 0

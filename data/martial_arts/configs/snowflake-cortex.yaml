@@ -1,0 +1,88 @@
+# Snowflake benchmark profile for the bundled text-native corpus.
+#
+# This exists so Snowflake results are comparable with the published Kubernetes
+# and local results. The graph identity and ontology must match those runs: the
+# gold fixture is keyed to `martial-arts-history-v1`, and without the ontology
+# every relation collapses to a single untyped edge, which scores zero triple
+# recall regardless of how well extraction actually performed.
+#
+# Account-specific values come from the environment. See docs/snowflake-setup.md.
+runtime:
+  runtime: spcs
+job:
+  job_id: martial-arts-snowflake-cortex
+  graph_id: martial-arts-history-v1
+  use_file_queue: true
+  lease_owner: ${KG_JOB_LEASE_OWNER}
+  lease_seconds: 900
+  file_batch_size: 100
+files:
+  source: snowflake_stage
+  stage_prefix: ${KG_STAGE_PREFIX}
+ocr:
+  # Cortex parses the staged fixtures; the corpus is text-native, so layout
+  # analysis is unnecessary.
+  provider: snowflake_cortex
+  snowflake_parse_mode: OCR
+  snowflake_page_split: true
+  snowflake_extract_images: false
+llm:
+  provider: snowflake_cortex
+  model: ${KG_LLM_MODEL}
+embedding:
+  provider: snowflake_cortex
+  model: ${KG_EMBED_MODEL}
+  dimension: ${KG_EMBED_DIM}
+ontology:
+  profile_path: data/martial_arts/ontology.yaml
+graph:
+  # Measured against this account's Cortex endpoint: throughput peaks near
+  # sixteen concurrent completions and collapses beyond it. The ceiling is
+  # Cortex's own per-account, per-model limit, not the container's cores, so
+  # every model-calling stage may use the same budget in turn.
+  extraction_parallelism: 12
+  finalization_provider_concurrency: 12
+writer:
+  provider: snowflake_bulk
+cache:
+  provider: snowflake
+snowflake:
+  user: ${KG_SNOWFLAKE_USER}
+  password: ${KG_SNOWFLAKE_PASSWORD}
+  authenticator: ${KG_SNOWFLAKE_AUTHENTICATOR}
+  database: ${KG_SNOWFLAKE_DATABASE}
+  schema: ${KG_SNOWFLAKE_SCHEMA}
+  role: ${KG_SNOWFLAKE_ROLE}
+  warehouse: ${KG_SNOWFLAKE_WAREHOUSE}
+  stage: ${KG_SNOWFLAKE_STAGE}
+  bulk_stage: ${KG_SNOWFLAKE_BULK_STAGE}
+  image_repository: ${KG_SNOWFLAKE_IMAGE_REPOSITORY}
+  image_name: ${KG_SNOWFLAKE_IMAGE_NAME}
+  image_digest: ${KG_SNOWFLAKE_IMAGE_DIGEST}
+  compute_pool: ${KG_SNOWFLAKE_COMPUTE_POOL}
+  service_name: ${KG_SNOWFLAKE_SERVICE_NAME}
+  service_spec_stage: ${KG_SNOWFLAKE_SERVICE_SPEC_STAGE}
+  service_cpu_request: "500m"
+  service_cpu_limit: "1"
+  service_memory_request: 3Gi
+  service_memory_limit: 5Gi
+  service_gpu_count: 0
+
+# Indicative public rates, so a benchmark run demonstrates the consumption view
+# end to end. Cortex bills AI_COMPLETE on input and output tokens, AI_EMBED on
+# input tokens only, and AI_PARSE_DOCUMENT per page; the credit rates and the
+# price per credit are contract-specific, so replace these with the figures from
+# your own Service Consumption Table before treating any total as authoritative.
+consumption:
+  rates:
+    snowflake_cortex:llama3.3-70b:
+      prompt_usd_per_million: 0.87
+      completion_usd_per_million: 0.87
+    snowflake_cortex:snowflake-arctic-embed-l-v2.0:
+      prompt_usd_per_million: 0.03
+    # Priced per page rather than per token.
+    snowflake_cortex:*:
+      usd_per_page: 0.0075
+  # Local runs are priced against this hosted model so the avoided cost has a
+  # stated alternative rather than an unfalsifiable number.
+  local_reference: snowflake_cortex:llama3.3-70b

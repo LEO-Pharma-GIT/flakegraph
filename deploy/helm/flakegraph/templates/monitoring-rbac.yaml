@@ -1,0 +1,48 @@
+{{- if and .Values.monitoring.enabled (include "flakegraph.engineUpstream" .) }}
+{{- /*
+What the endpoint picker needs to *evaluate* a scrape, as opposed to serve one.
+
+Its metrics port runs controller-runtime's authenticating filter: every request
+is a TokenReview to learn who is calling, then a SubjectAccessReview to learn
+whether they may GET /metrics. Both are API calls the picker makes with its own
+ServiceAccount, and both are cluster-scoped resources - a namespaced Role cannot
+name them. Without this grant the filter cannot ask, and answers every
+authenticated scrape with a 500 that reads like the picker is broken rather
+than the caller being unknown.
+
+Held under monitoring.enabled because the endpoint is worth nothing without a
+scraper, and a cluster-wide grant nobody uses is a grant to remove. Named the
+way the control plane's node grant is: component, then what it is for.
+*/}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "flakegraph.inferenceRouterName" . }}-authn
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: inference-router
+rules:
+  - apiGroups: [authentication.k8s.io]
+    resources: [tokenreviews]
+    verbs: [create]
+  - apiGroups: [authorization.k8s.io]
+    resources: [subjectaccessreviews]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "flakegraph.inferenceRouterName" . }}-authn
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: inference-router
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "flakegraph.inferenceRouterName" . }}-authn
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "flakegraph.inferenceRouterName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

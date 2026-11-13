@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-eval' __FLAKEGRAPH_SCRIPT_HASHES__; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; worker-src blob:">
+    <title>__FLAKEGRAPH_TITLE__</title>
+    <style>__FLAKEGRAPH_CSS__</style>
+  </head>
+  <body data-view="graph">
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand" aria-label="FlakeGraph Explorer">
+          <span class="brand-mark" aria-hidden="true">FG</span>
+          <span class="brand-name">FlakeGraph</span>
+          <span class="brand-product">Explorer</span>
+        </div>
+        <nav class="view-tabs" aria-label="Explorer views">
+          <button class="view-tab is-active" type="button" data-view-target="graph">Graph</button>
+          <button class="view-tab" type="button" data-view-target="communities">Communities</button>
+          <button class="view-tab" type="button" data-view-target="data">Data</button>
+          <button class="view-tab" type="button" data-view-target="quality">Quality</button>
+        </nav>
+        <div class="topbar-actions">
+          <button id="mobile-filter-button" class="button button-quiet mobile-only" type="button">
+            Filters
+          </button>
+          <button id="export-view-button" class="button button-primary" type="button">
+            Export view
+          </button>
+        </div>
+      </header>
+
+      <section id="summary-strip" class="summary-strip" aria-label="Graph summary"></section>
+
+      <main class="workspace">
+        <aside id="filter-panel" class="filter-panel" aria-label="Graph filters">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Explore</p>
+              <h2>Filters</h2>
+            </div>
+            <button id="close-filter-button" class="icon-button mobile-only" type="button" title="Close filters" aria-label="Close filters">×</button>
+          </div>
+          <label class="field search-field">
+            <span>Search</span>
+            <input id="graph-search" type="search" autocomplete="off" placeholder="Entities, relations, descriptions">
+          </label>
+          <section class="filter-section">
+            <div class="section-heading">
+              <h3>Entity types</h3>
+              <button class="text-button" type="button" data-toggle-filter="node-types">Clear</button>
+            </div>
+            <div id="node-type-filters" class="check-list"></div>
+          </section>
+          <section class="filter-section">
+            <div class="section-heading">
+              <h3>Relation types</h3>
+              <button class="text-button" type="button" data-toggle-filter="relation-types">Clear</button>
+            </div>
+            <div id="relation-type-filters" class="check-list"></div>
+          </section>
+          <section class="filter-section">
+            <label class="field">
+              <span>Community</span>
+              <select id="community-filter"></select>
+            </label>
+            <label class="field range-field">
+              <span>Minimum relation weight <output id="weight-output"></output></span>
+              <input id="weight-filter" type="range" min="0" step="0.1">
+            </label>
+            <label class="field range-field">
+              <span>Minimum degree <output id="degree-output"></output></span>
+              <input id="degree-filter" type="range" min="0" step="1">
+            </label>
+          </section>
+          <section class="filter-section compact-controls">
+            <label class="toggle-row">
+              <input id="evidence-filter" type="checkbox">
+              <span class="toggle" aria-hidden="true"></span>
+              <span>Evidence only</span>
+            </label>
+            <label class="toggle-row">
+              <input id="isolates-filter" type="checkbox" checked>
+              <span class="toggle" aria-hidden="true"></span>
+              <span>Hide isolated entities</span>
+            </label>
+          </section>
+          <button id="reset-filters-button" class="button button-secondary full-width" type="button">
+            Reset filters
+          </button>
+        </aside>
+
+        <section class="view-stack">
+          <section id="graph-view" class="view is-active" data-view-panel="graph">
+            <div class="graph-toolbar">
+              <div class="toolbar-group">
+                <label class="compact-field">
+                  <span>Layout</span>
+                  <select id="layout-select">
+                    <option value="force">Force-directed</option>
+                    <option value="community">Communities</option>
+                    <option value="radial">Radial</option>
+                  </select>
+                </label>
+                <label class="compact-field">
+                  <span>Color</span>
+                  <select id="color-select">
+                    <option value="type">Entity type</option>
+                    <option value="community">Community</option>
+                  </select>
+                </label>
+                <label class="compact-field">
+                  <span>Size</span>
+                  <select id="size-select">
+                    <option value="degree">Degree</option>
+                    <option value="rank">Rank</option>
+                    <option value="uniform">Uniform</option>
+                  </select>
+                </label>
+                <label class="compact-field">
+                  <span>Labels</span>
+                  <select id="label-select">
+                    <option value="selected">Selected</option>
+                    <option value="all">All</option>
+                    <option value="none">None</option>
+                  </select>
+                </label>
+              </div>
+              <div class="toolbar-group toolbar-actions">
+                <span id="visible-count" class="visible-count"></span>
+                <button id="fit-graph-button" class="button button-quiet" type="button">Fit graph</button>
+              </div>
+            </div>
+            <div class="graph-stage">
+              <div id="graph-canvas" role="img" aria-label="Interactive knowledge graph"></div>
+              <div id="graph-empty" class="empty-state" hidden>
+                <strong>No matching graph objects</strong>
+              </div>
+              <div id="graph-legend" class="graph-legend"></div>
+            </div>
+          </section>
+
+          <section id="communities-view" class="view scroll-view" data-view-panel="communities">
+            <div class="view-heading">
+              <div>
+                <p class="eyebrow">Detected structure</p>
+                <h1>Communities</h1>
+              </div>
+              <div class="view-actions">
+                <input id="community-search" type="search" placeholder="Search communities">
+                <select id="community-sort" aria-label="Sort communities">
+                  <option value="rating">Highest rating</option>
+                  <option value="size">Largest community</option>
+                  <option value="title">Title</option>
+                </select>
+              </div>
+            </div>
+            <div id="community-grid" class="community-grid"></div>
+          </section>
+
+          <section id="data-view" class="view" data-view-panel="data">
+            <div class="data-toolbar">
+              <div id="data-tabs" class="segmented-control" role="tablist" aria-label="Graph tables"></div>
+              <div class="data-actions">
+                <input id="data-search" type="search" placeholder="Search table">
+                <button id="download-csv-button" class="button button-secondary" type="button">Download CSV</button>
+              </div>
+            </div>
+            <div class="table-shell">
+              <table id="data-table">
+                <thead></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="table-footer">
+              <span id="table-count"></span>
+              <div class="pagination">
+                <button id="previous-page-button" class="icon-button" type="button" title="Previous page" aria-label="Previous page">‹</button>
+                <span id="page-indicator"></span>
+                <button id="next-page-button" class="icon-button" type="button" title="Next page" aria-label="Next page">›</button>
+              </div>
+            </div>
+          </section>
+
+          <section id="quality-view" class="view scroll-view" data-view-panel="quality">
+            <div class="view-heading">
+              <div>
+                <p class="eyebrow">Artifact integrity</p>
+                <h1>Quality</h1>
+              </div>
+            </div>
+            <div id="quality-overview" class="quality-overview"></div>
+            <section class="content-section">
+              <div class="section-heading"><h2>Graph checks</h2></div>
+              <div id="quality-checks" class="check-results"></div>
+            </section>
+            <section class="content-section">
+              <div class="section-heading"><h2>Run metrics</h2></div>
+              <div id="metric-grid" class="metric-grid"></div>
+            </section>
+          </section>
+        </section>
+
+        <aside id="inspector-panel" class="inspector-panel" aria-label="Selection details">
+          <div class="panel-heading">
+            <div>
+              <p id="inspector-eyebrow" class="eyebrow">Graph overview</p>
+              <h2 id="inspector-title"></h2>
+            </div>
+            <button id="close-inspector-button" class="icon-button mobile-only" type="button" title="Close details" aria-label="Close details">×</button>
+          </div>
+          <div id="inspector-content" class="inspector-content"></div>
+        </aside>
+      </main>
+    </div>
+
+    <script>__FLAKEGRAPH_PLOTLY_JS__</script>
+    <script id="flakegraph-data" type="application/json">__FLAKEGRAPH_DATA__</script>
+    <script>__FLAKEGRAPH_APP_JS__</script>
+  </body>
+</html>
