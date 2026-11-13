@@ -303,7 +303,7 @@ export function renderFindings(findings: DocumentFinding[]): string {
       "Every document that bears on it is listed below. Each one's findings are added after your answer, study by study, " +
       "so write what they show together - patterns, comparisons, counts, differences, with their numbers - naming the studies behind each point, " +
       "rather than going through them one by one. Open with what they show. Never say that a document listed below does not bear on the question, " +
-      "or that the collection lacks what one of them states. A count or a list of which ones qualify goes through every folder or document below by name, by the rule the question sets.",
+      "or that the collection lacks what one of them states. A count is a count of the folders or documents listed below, each one named.",
   ];
   // Documents that bear on the question settle its assumptions. One that says
   // nothing on it speaks only to an assumption about itself, and while others
