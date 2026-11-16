@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "status": "partial",
+  "status_reason": "One complete uncached run, scored with the pipeline's evaluator against the exhaustive gold, so precision and F1 are measured; a single run carries no stability estimate. Submitted with the console's sample-pack configuration on the six-node fleet.",
+  "result_id": "mah-v2.1-qwen38-27b-nvfp4-vllm-k8s-6x-gb10-20260925",
+  "measured_at_utc": "2026-09-25T09:19:16Z",
+  "dataset": {
+    "id": "martial-arts-history-v1",
+    "version": "2.1.0",
+    "license": "CC0-1.0",
+    "gold_path": "data/martial_arts/gold.json",
+    "gold_sha256": "9b0b2807cdf8fdf185b016baf582f8b94468bc71507e9c67902afb1c0e30e99e",
+    "manifest_path": "data/martial_arts/manifest.jsonl",
+    "manifest_sha256": "26966f45dda5ce8739650f3f0988dce4448e0cc882db248ee18d97e0b7e8f8c6",
+    "document_count": 10,
+    "expected_entity_count": 119,
+    "expected_relation_count": 148,
+    "evidence_observation_count": 161
+  },
+  "configuration": {
+    "path": null,
+    "sha256": "d53e78ba1f928dcf9fb55c4c7a34c81584058ac2499399649e7f839f7e4a9619",
+    "ontology_path": "data/martial_arts/ontology.yaml",
+    "ontology_sha256": "16f73a1a66b45d09474bfbf52773a17b2f907efa9de77905d421c547ca4633f6"
+  },
+  "models": {
+    "llm": {
+      "name": "unsloth/Qwen3.8-27B-NVFP4",
+      "provider": "vllm_local"
+    },
+    "embedding": {
+      "name": "Qwen/Qwen3-Embedding-0.6B",
+      "provider": "sentence_transformers",
+      "dimension": 1024
+    }
+  },
+  "runtime": {
+    "execution": "Kubernetes",
+    "serving_software": "NVIDIA vLLM",
+    "inference_path": "LiteLLM, Envoy with the llm-d endpoint picker, per-pod auth sidecar",
+    "ocr_provider": "fallback (builtin_text, mineru_api)"
+  },
+  "protocol": {
+    "requested_repeats": 1,
+    "completed_repeats": 1,
+    "run_ids": [
+      "run_c5cb2aab8ad1"
+    ],
+    "cache_disabled": true,
+    "failed_task_attempts": 0
+  },
+  "measurements": {
+    "accepted_run_count": 0,
+    "quality": {
+      "aggregation": "single_run",
+      "acceptance_thresholds_met": false,
+      "failed_gates": [
+        "entity_recall",
+        "evidence_support",
+        "triple_recall",
+        "two_hop_recoverability"
+      ],
+      "component_count": null,
+      "entity_precision": 0.7938,
+      "entity_recall": 0.6471,
+      "entity_f1": 0.713,
+      "triple_precision": 0.9333,
+      "triple_recall": 0.6667,
+      "triple_f1": 0.7778,
+      "evidence_support_rate": 0.6444,
+      "information_retention": 0.6569,
+      "isolate_ratio": 0.1776,
+      "two_hop_recoverability": 0.6963,
+      "output_entities": 107.0,
+      "output_relations": 105.0
+    },
+    "timing_seconds": {
+      "mean": 452.0
+    },
+    "extraction_documents_per_minute": 1.327,
+    "stability": {
+      "pair_count": 0,
+      "mean_node_jaccard": null,
+      "minimum_node_jaccard": null,
+      "mean_triple_jaccard": null,
+      "minimum_triple_jaccard": null
+    }
+  }
+}

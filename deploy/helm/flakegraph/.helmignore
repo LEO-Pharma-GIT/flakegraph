@@ -1,0 +1,5 @@
+# Patterns are matched against paths relative to the chart root.
+.DS_Store
+__pycache__/
+*.pyc
+*.private.yaml

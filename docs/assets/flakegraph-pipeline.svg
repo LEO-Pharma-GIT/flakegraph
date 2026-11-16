@@ -1,0 +1,276 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1080" viewBox="0 0 1600 1080" role="img" aria-labelledby="title desc">
+  <title>FlakeGraph document-to-knowledge-graph processing pipeline</title>
+  <desc>Documents pass through OCR and chunking, document context, entity-first and relation-second extraction, corpus-wide identity resolution, graph assembly, validation, embeddings, communities, and atomic publication. The same contract maps to local, Kubernetes, and Snowflake runtimes through replaceable provider adapters.</desc>
+  <defs>
+    <style>
+      text { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #17243b; }
+      .eyebrow { font-size: 15px; font-weight: 700; fill: #52627a; }
+      .title { font-size: 38px; font-weight: 750; }
+      .subtitle { font-size: 18px; fill: #52627a; }
+      .runtimeTitle { font-size: 17px; font-weight: 750; }
+      .runtimeBody { font-size: 14px; fill: #52627a; }
+      .stageTitle { font-size: 17px; font-weight: 750; }
+      .stepTitle { font-size: 15px; font-weight: 700; }
+      .stepBody { font-size: 13px; fill: #52627a; }
+      .micro { font-size: 12px; fill: #52627a; }
+      .adapterTitle { font-size: 13px; font-weight: 750; }
+      .adapterBody { font-size: 12px; fill: #52627a; }
+      .card { fill: #ffffff; stroke: #d7e0ea; stroke-width: 1.5; }
+      .line { fill: none; stroke: #8ba0b8; stroke-width: 2; }
+      .flow { fill: none; stroke: #168bd2; stroke-width: 2.5; marker-end: url(#arrow); }
+      .providerLine { fill: none; stroke: #0aa887; stroke-width: 2; stroke-dasharray: 5 5; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#168bd2"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="1080" fill="#f7f9fc"/>
+  <rect x="20" y="20" width="1560" height="1040" rx="8" fill="#f7f9fc" stroke="#d7e0ea" stroke-width="1.5"/>
+
+  <!-- Product mark and headline -->
+  <g transform="translate(58 54)">
+    <ellipse cx="34" cy="34" rx="29" ry="12" fill="none" stroke="#42d3df" stroke-width="5" transform="rotate(30 34 34)"/>
+    <ellipse cx="34" cy="34" rx="29" ry="12" fill="none" stroke="#42d3df" stroke-width="5" transform="rotate(-30 34 34)"/>
+    <circle cx="34" cy="34" r="10" fill="#0aa887"/>
+    <circle cx="7" cy="34" r="5" fill="#168bd2"/>
+    <circle cx="61" cy="34" r="5" fill="#168bd2"/>
+  </g>
+  <text x="142" y="75" class="eyebrow">FLAKEGRAPH PROCESSING CONTRACT</text>
+  <text x="142" y="112" class="title">Documents in. Evidence-backed graph out.</text>
+  <text x="142" y="142" class="subtitle">One algorithm, interchangeable providers, and three execution modes.</text>
+
+  <!-- Runtime choices -->
+  <text x="60" y="194" class="eyebrow">RUN THE SAME CONTRACT ANYWHERE</text>
+  <g transform="translate(60 214)">
+    <rect class="card" width="465" height="104" rx="8"/>
+    <rect x="0" y="0" width="8" height="104" rx="4" fill="#168bd2"/>
+    <rect x="28" y="25" width="50" height="34" rx="3" fill="none" stroke="#168bd2" stroke-width="3"/>
+    <path d="M38 70 H68 M53 59 V70" class="line"/>
+    <text x="98" y="34" class="runtimeTitle">LOCAL</text>
+    <text x="98" y="59" class="runtimeBody">Single process • local or remote providers</text>
+    <text x="98" y="82" class="runtimeBody">Local artifacts • simplest evaluation path</text>
+  </g>
+  <g transform="translate(568 214)">
+    <rect class="card" width="465" height="104" rx="8"/>
+    <rect x="0" y="0" width="8" height="104" rx="4" fill="#7357c7"/>
+    <circle cx="54" cy="50" r="25" fill="none" stroke="#7357c7" stroke-width="3"/>
+    <circle cx="54" cy="50" r="6" fill="#7357c7"/>
+    <path d="M54 25 V36 M54 64 V75 M29 50 H40 M68 50 H79 M36 32 L44 41 M64 59 L72 68 M72 32 L64 41 M44 59 L36 68" stroke="#7357c7" stroke-width="3"/>
+    <text x="98" y="34" class="runtimeTitle">KUBERNETES</text>
+    <text x="98" y="59" class="runtimeBody">PostgreSQL leases • KEDA worker pools</text>
+    <text x="98" y="82" class="runtimeBody">S3 stage shards • distributed Spark finalization</text>
+  </g>
+  <g transform="translate(1076 214)">
+    <rect class="card" width="464" height="104" rx="8"/>
+    <rect x="0" y="0" width="8" height="104" rx="4" fill="#0aa887"/>
+    <g transform="translate(54 50)" stroke="#0aa887" stroke-width="3" stroke-linecap="round">
+      <path d="M-25 0 H25 M-12 -22 L12 22 M12 -22 L-12 22"/>
+      <path d="M-25 0 L-17 -7 M-25 0 L-17 7 M25 0 L17 -7 M25 0 L17 7"/>
+    </g>
+    <text x="98" y="34" class="runtimeTitle">SNOWFLAKE</text>
+    <text x="98" y="59" class="runtimeBody">Stages • Cortex OCR, LLM, and embeddings</text>
+    <text x="98" y="82" class="runtimeBody">Direct or bulk writers • optional SPCS container</text>
+  </g>
+
+  <path d="M292 318 V344 H800 M800 318 V344 M1308 318 V344 H800 V362" class="flow"/>
+  <rect x="610" y="345" width="380" height="34" rx="8" fill="#e8f5fc" stroke="#9bcfed"/>
+  <text x="800" y="367" text-anchor="middle" class="stepTitle" fill="#126ba3">PROVIDER-NEUTRAL PIPELINE</text>
+
+  <!-- Stage 1 -->
+  <g transform="translate(60 402)">
+    <rect class="card" width="300" height="438" rx="8"/>
+    <rect width="300" height="48" rx="8" fill="#e8f5fc"/>
+    <rect y="40" width="300" height="8" fill="#e8f5fc"/>
+    <circle cx="28" cy="24" r="14" fill="#168bd2"/>
+    <text x="28" y="29" text-anchor="middle" font-size="14" font-weight="750" fill="#ffffff">1</text>
+    <text x="52" y="30" class="stageTitle">PREPARE DOCUMENTS</text>
+
+    <rect x="22" y="72" width="256" height="70" rx="8" fill="#f7f9fc" stroke="#d7e0ea"/>
+    <path d="M42 91 H67 L77 101 V128 H42 Z M67 91 V102 H77" fill="none" stroke="#168bd2" stroke-width="2"/>
+    <text x="92" y="101" class="stepTitle">Read source files</text>
+    <text x="92" y="123" class="stepBody">Local, blob, manifest, or stage</text>
+
+    <path d="M150 142 V160" class="flow"/>
+    <rect x="22" y="164" width="256" height="70" rx="8" fill="#f7f9fc" stroke="#d7e0ea"/>
+    <path d="M42 181 H52 M42 181 V191 M77 181 H67 M77 181 V191 M42 217 H52 M42 217 V207 M77 217 H67 M77 217 V207 M49 198 H70" fill="none" stroke="#0aa887" stroke-width="2"/>
+    <text x="92" y="193" class="stepTitle">OCR and layout</text>
+    <text x="92" y="215" class="stepBody">Text, pages, blocks, and assets</text>
+
+    <path d="M150 234 V252" class="flow"/>
+    <rect x="22" y="256" width="256" height="70" rx="8" fill="#f7f9fc" stroke="#d7e0ea"/>
+    <path d="M42 273 H76 M42 285 H70 M42 297 H76 M42 309 H64" stroke="#168bd2" stroke-width="2"/>
+    <text x="92" y="285" class="stepTitle">Normalize</text>
+    <text x="92" y="307" class="stepBody">Stable IDs and source offsets</text>
+
+    <path d="M150 326 V344" class="flow"/>
+    <rect x="22" y="348" width="256" height="70" rx="8" fill="#f7f9fc" stroke="#d7e0ea"/>
+    <rect x="42" y="366" width="34" height="9" rx="2" fill="#8edbe3"/>
+    <rect x="42" y="380" width="34" height="9" rx="2" fill="#4cbcec"/>
+    <rect x="42" y="394" width="34" height="9" rx="2" fill="#168bd2"/>
+    <text x="92" y="377" class="stepTitle">Chunk and window</text>
+    <text x="92" y="399" class="stepBody">Bounded; never crosses documents</text>
+  </g>
+
+  <path d="M360 621 H384" class="flow"/>
+
+  <!-- Stage 2 -->
+  <g transform="translate(388 402)">
+    <rect class="card" width="520" height="438" rx="8"/>
+    <rect width="520" height="48" rx="8" fill="#e9f8f5"/>
+    <rect y="40" width="520" height="8" fill="#e9f8f5"/>
+    <circle cx="28" cy="24" r="14" fill="#0aa887"/>
+    <text x="28" y="29" text-anchor="middle" font-size="14" font-weight="750" fill="#ffffff">2</text>
+    <text x="52" y="30" class="stageTitle">DOCUMENT-WIDE TWO-PHASE EXTRACTION</text>
+
+    <rect x="22" y="70" width="476" height="62" rx="8" fill="#f1fbf9" stroke="#a7ddd2"/>
+    <text x="40" y="94" class="stepTitle">Context setup • once per document</text>
+    <text x="40" y="116" class="stepBody">Front matter → reusable focal subjects for every body window</text>
+
+    <path d="M260 132 V151" class="flow"/>
+    <rect x="22" y="156" width="224" height="152" rx="8" fill="#ffffff" stroke="#75cfc1" stroke-width="2"/>
+    <rect x="38" y="173" width="62" height="24" rx="8" fill="#0aa887"/>
+    <text x="69" y="190" text-anchor="middle" font-size="12" font-weight="750" fill="#ffffff">PASS 1</text>
+    <text x="38" y="222" class="stepTitle">Entity mentions</text>
+    <text x="38" y="246" class="stepBody">• typed by the ontology</text>
+    <text x="38" y="269" class="stepBody">• grounded to chunk spans</text>
+    <text x="38" y="292" class="stepBody">• audited for missed mentions</text>
+
+    <path d="M246 232 H270" class="flow"/>
+    <rect x="274" y="156" width="224" height="152" rx="8" fill="#ffffff" stroke="#3caadd" stroke-width="2"/>
+    <rect x="290" y="173" width="62" height="24" rx="8" fill="#168bd2"/>
+    <text x="321" y="190" text-anchor="middle" font-size="12" font-weight="750" fill="#ffffff">PASS 2</text>
+    <text x="290" y="222" class="stepTitle">Relations</text>
+    <text x="290" y="246" class="stepBody">• all document mention IDs</text>
+    <text x="290" y="269" class="stepBody">• evidence quote + confidence</text>
+    <text x="290" y="292" class="stepBody">• ontology endpoint rules</text>
+
+    <text x="260" y="328" text-anchor="middle" class="micro">Document entity inventory barrier between parallel queue waves</text>
+    <path d="M260 332 V340" class="flow"/>
+    <rect x="22" y="344" width="476" height="70" rx="8" fill="#f7f9fc" stroke="#d7e0ea"/>
+    <circle cx="52" cy="379" r="16" fill="#fff5dd" stroke="#e2ad36"/>
+    <path d="M45 379 L50 384 L60 372" fill="none" stroke="#a87400" stroke-width="2.5"/>
+    <text x="82" y="372" class="stepTitle">Ground, glean, and verify</text>
+    <text x="82" y="395" class="stepBody">Unsupported candidates are rejected; observations stay unresolved</text>
+  </g>
+
+  <path d="M908 621 H932" class="flow"/>
+
+  <!-- Stage 3 -->
+  <g transform="translate(936 402)">
+    <rect class="card" width="414" height="438" rx="8"/>
+    <rect width="414" height="48" rx="8" fill="#f1edfb"/>
+    <rect y="40" width="414" height="8" fill="#f1edfb"/>
+    <circle cx="28" cy="24" r="14" fill="#7357c7"/>
+    <text x="28" y="29" text-anchor="middle" font-size="14" font-weight="750" fill="#ffffff">3</text>
+    <text x="52" y="30" class="stageTitle">CORPUS FINALIZATION</text>
+
+    <rect x="22" y="72" width="370" height="58" rx="8" fill="#f7f9fc" stroke="#d7e0ea"/>
+    <circle cx="48" cy="101" r="6" fill="#7357c7"/>
+    <circle cx="67" cy="91" r="6" fill="#168bd2"/>
+    <circle cx="71" cy="113" r="6" fill="#0aa887"/>
+    <path d="M53 98 L62 94 M53 104 L66 110" class="line"/>
+    <text x="94" y="96" class="stepTitle">Generate identity candidates</text>
+    <text x="94" y="116" class="stepBody">Aliases + lexical blocks + embeddings</text>
+
+    <path d="M207 130 V145" class="flow"/>
+    <rect x="22" y="149" width="370" height="58" rx="8" fill="#f7f9fc" stroke="#d7e0ea"/>
+    <circle cx="60" cy="178" r="17" fill="#e9e2f8" stroke="#7357c7"/>
+    <circle cx="51" cy="178" r="5" fill="#7357c7"/>
+    <circle cx="69" cy="178" r="5" fill="#7357c7"/>
+    <path d="M56 178 H64" stroke="#7357c7" stroke-width="2"/>
+    <text x="94" y="173" class="stepTitle">Resolve canonical identity</text>
+    <text x="94" y="193" class="stepBody">Thresholds + optional LLM adjudication</text>
+
+    <path d="M207 207 V222" class="flow"/>
+    <rect x="22" y="226" width="370" height="58" rx="8" fill="#f7f9fc" stroke="#d7e0ea"/>
+    <circle cx="50" cy="255" r="7" fill="#168bd2"/>
+    <circle cx="73" cy="244" r="7" fill="#0aa887"/>
+    <circle cx="76" cy="268" r="7" fill="#7357c7"/>
+    <path d="M56 252 L67 247 M56 259 L69 266 M73 251 L75 261" class="line"/>
+    <text x="104" y="250" class="stepTitle">Assemble nodes, edges, evidence</text>
+    <text x="104" y="270" class="stepBody">Stable IDs and aggregated triples</text>
+
+    <path d="M207 284 V299" class="flow"/>
+    <rect x="22" y="303" width="370" height="58" rx="8" fill="#f7f9fc" stroke="#d7e0ea"/>
+    <path d="M45 319 H75 V345 H45 Z M51 329 L57 335 L69 323" fill="none" stroke="#0aa887" stroke-width="2"/>
+    <text x="94" y="327" class="stepTitle">Prune and validate</text>
+    <text x="94" y="347" class="stepBody">Grounding, endpoints, ontology, structure</text>
+
+    <path d="M207 361 V376" class="flow"/>
+    <rect x="22" y="380" width="370" height="38" rx="8" fill="#f1edfb" stroke="#c8b9eb"/>
+    <text x="207" y="404" text-anchor="middle" class="stepTitle">Descriptions • embeddings • communities</text>
+  </g>
+
+  <path d="M1350 621 H1374" class="flow"/>
+
+  <!-- Stage 4 -->
+  <g transform="translate(1378 402)">
+    <rect class="card" width="162" height="438" rx="8"/>
+    <rect width="162" height="48" rx="8" fill="#fff5dd"/>
+    <rect y="40" width="162" height="8" fill="#fff5dd"/>
+    <circle cx="28" cy="24" r="14" fill="#d69712"/>
+    <text x="28" y="29" text-anchor="middle" font-size="14" font-weight="750" fill="#ffffff">4</text>
+    <text x="52" y="30" class="stageTitle">PUBLISH</text>
+
+    <path d="M49 91 C49 78 113 78 113 91 V119 C113 132 49 132 49 119 Z M49 91 C49 104 113 104 113 91 M49 105 C49 118 113 118 113 105" fill="none" stroke="#d69712" stroke-width="2.5"/>
+    <text x="81" y="159" text-anchor="middle" class="stepTitle">Atomic version</text>
+    <text x="81" y="181" text-anchor="middle" class="micro">Readers never see</text>
+    <text x="81" y="198" text-anchor="middle" class="micro">a partial graph</text>
+
+    <line x1="26" y1="224" x2="136" y2="224" stroke="#d7e0ea"/>
+    <text x="26" y="254" class="stepTitle">Outputs</text>
+    <text x="26" y="281" class="stepBody">Local tables</text>
+    <text x="26" y="307" class="stepBody">Snowflake KG_*</text>
+    <text x="26" y="333" class="stepBody">Parquet shards</text>
+    <text x="26" y="359" class="stepBody">HTML explorer</text>
+    <text x="26" y="385" class="stepBody">Metrics + traces</text>
+  </g>
+
+  <!-- Adapter boundary -->
+  <path d="M800 840 V870 M200 870 H1400 M200 870 V914 M500 870 V914 M800 870 V914 M1100 870 V914 M1400 870 V914" class="providerLine"/>
+  <text x="60" y="894" class="eyebrow">REPLACE PROVIDERS WITHOUT CHANGING THE PROCESSING RULES</text>
+  <g transform="translate(60 914)">
+    <rect class="card" width="280" height="112" rx="8"/>
+    <circle cx="34" cy="34" r="17" fill="#e8f5fc"/>
+    <path d="M24 25 H39 L46 32 V45 H24 Z M39 25 V32 H46" fill="none" stroke="#168bd2" stroke-width="2"/>
+    <text x="62" y="32" class="adapterTitle">FILES</text>
+    <text x="62" y="53" class="adapterBody">Local • Azure Blob • manifest • stage</text>
+    <text x="22" y="83" class="adapterTitle">Stable source identity and checksums</text>
+  </g>
+  <g transform="translate(360 914)">
+    <rect class="card" width="280" height="112" rx="8"/>
+    <circle cx="34" cy="34" r="17" fill="#e9f8f5"/>
+    <path d="M24 25 H30 M24 25 V31 M44 25 H38 M44 25 V31 M24 43 H30 M24 43 V37 M44 43 H38 M44 43 V37 M29 34 H39" fill="none" stroke="#0aa887" stroke-width="2"/>
+    <text x="62" y="32" class="adapterTitle">OCR</text>
+    <text x="62" y="53" class="adapterBody">MinerU • Tesseract • HTTP • Cortex</text>
+    <text x="22" y="83" class="adapterTitle">Adaptive fallback and normalization</text>
+  </g>
+  <g transform="translate(660 914)">
+    <rect class="card" width="280" height="112" rx="8"/>
+    <circle cx="34" cy="34" r="17" fill="#f1edfb"/>
+    <circle cx="29" cy="34" r="4" fill="#7357c7"/>
+    <circle cx="40" cy="28" r="4" fill="#168bd2"/>
+    <circle cx="41" cy="41" r="4" fill="#0aa887"/>
+    <path d="M33 32 L36 30 M33 36 L37 39" class="line"/>
+    <text x="62" y="32" class="adapterTitle">LLM</text>
+    <text x="62" y="53" class="adapterBody">vLLM • Ollama • Azure OpenAI • Cortex</text>
+    <text x="22" y="83" class="adapterTitle">Structured extraction and adjudication</text>
+  </g>
+  <g transform="translate(960 914)">
+    <rect class="card" width="280" height="112" rx="8"/>
+    <circle cx="34" cy="34" r="17" fill="#fff5dd"/>
+    <path d="M25 42 L30 31 L35 38 L40 24 L44 42" fill="none" stroke="#d69712" stroke-width="2"/>
+    <text x="62" y="32" class="adapterTitle">EMBEDDINGS</text>
+    <text x="62" y="53" class="adapterBody">Sentence Transformers • API • Cortex</text>
+    <text x="22" y="83" class="adapterTitle">Resolution, retrieval, and communities</text>
+  </g>
+  <g transform="translate(1260 914)">
+    <rect class="card" width="280" height="112" rx="8"/>
+    <circle cx="34" cy="34" r="17" fill="#e9f8f5"/>
+    <path d="M24 29 C24 23 44 23 44 29 V40 C44 46 24 46 24 40 Z M24 29 C24 35 44 35 44 29" fill="none" stroke="#0aa887" stroke-width="2"/>
+    <text x="62" y="32" class="adapterTitle">WRITERS + CACHE</text>
+    <text x="62" y="53" class="adapterBody">Local • direct Snowflake • bulk stage</text>
+    <text x="22" y="83" class="adapterTitle">Versioned, idempotent publication</text>
+  </g>
+</svg>

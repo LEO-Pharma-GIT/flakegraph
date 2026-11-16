@@ -1,0 +1,48 @@
+{{- $root := . -}}
+{{- range $poolName, $pool := .Values.workers }}
+{{- if and $pool.enabled (gt (int $pool.replicas) 1) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "flakegraph.fullname" $root }}-{{ $poolName }}
+  labels:
+    {{- include "flakegraph.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: worker-{{ $poolName }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "flakegraph.selectorLabels" (dict "root" $root "component" (printf "worker-%s" $poolName)) | nindent 6 }}
+{{- end }}
+{{- end }}
+{{- if and .Values.modelServing.enabled (gt (int .Values.modelServing.replicas) 1) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "flakegraph.modelServingName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: model-serving
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "flakegraph.selectorLabels" (dict "root" . "component" "model-serving") | nindent 6 }}
+{{- end }}
+{{- if and .Values.documentParsing.enabled (gt (int .Values.documentParsing.mineru.replicas) 1) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "flakegraph.mineruName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: document-parsing
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "flakegraph.selectorLabels" (dict "root" . "component" "document-parsing") | nindent 6 }}
+{{- end }}

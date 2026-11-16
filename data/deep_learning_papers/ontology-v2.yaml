@@ -1,0 +1,132 @@
+name: scientific-deep-learning-literature
+description: A profile for papers, researchers, methods, models, datasets, tasks, concepts, and organizations in scientific literature.
+mode: hybrid
+entity_types:
+  - name: PAPER
+    description: A named research paper, article, book, thesis, report, or other scholarly publication.
+    aliases: [publication, article, work]
+    document_context: true
+    document_subject: true
+    contextual_surfaces: [we, our paper, our study, our work, this article, this paper, this study, this work, the paper]
+    guidance: When the front matter identifies this source's own title, it is the one PAPER of the document and comes before its models or methods.
+  - name: PERSON
+    description: A named researcher, author, or other individual.
+    aliases: [researcher, author]
+  - name: METHOD
+    description: An explicitly identified algorithm, objective, optimization procedure, training technique, or analytical method, including a source-defined method without a proper name.
+    aliases: [algorithm, technique, objective, procedure]
+    guidance: An optimizer, objective, or training technique is its own METHOD; do not fuse it with the model it trains or the data it is trained on.
+    document_context: true
+    contextual_surfaces: [our algorithm, our algorithms, our approach, our approaches, our method, our methods, this algorithm, these algorithms, this approach, these approaches, this method, these methods, the method, the methods, the proposed method, the proposed methods]
+  - name: MODEL
+    description: An explicitly identified model, neural-network architecture, learned system, or model family, including a source-defined experimental architecture.
+    aliases: [architecture, system, network]
+    guidance: An explicitly paired set of components is one MODEL only when the source treats the whole coordinated phrase as a jointly trained, jointly used, or named architecture. In a result table, 'Ours' refers to the source's own focal model only when exactly one is supplied.
+    document_context: true
+    contextual_surfaces: [our architecture, our architectures, our model, our models, our network, our networks, our system, our systems, this architecture, these architectures, this model, these models, this network, these networks, this system, these systems, the architecture, the architectures, the model, the models, the network, the networks, the proposed model, the proposed models, ours]
+  - name: DATASET
+    description: A named or clearly bounded dataset, benchmark corpus, evaluation suite, synthetic sample, experimental cohort, or empirical data collection.
+    aliases: [benchmark, corpus]
+  - name: TASK
+    description: An explicitly stated prediction, generation, control, reasoning, learning, or scientific problem being addressed or evaluated.
+    aliases: [problem, application]
+    guidance: A limitation or bottleneck the work seeks to overcome is a TASK rather than a CONCEPT, even when stated declaratively before the solution; framing such as 'is concerned with', 'studies', 'investigates', or 'analyzes' introduces one. Keep the complete problem phrase.
+    counter_examples:
+      - "an observed property, representation, or finding, which is a CONCEPT"
+  - name: CONCEPT
+    description: An explicitly identified theoretical construct, representation principle, phenomenon, or scientific finding.
+  - name: ORGANIZATION
+    description: A named university, laboratory, company, institute, publisher, conference, or research organization.
+    aliases: [institution, laboratory, company]
+relation_types:
+  - name: AUTHORED_BY
+    description: The source paper explicitly names the target person or institutional author.
+    source_types: [PAPER]
+    target_types: [PERSON, ORGANIZATION]
+    aliases: [written_by]
+  - name: INTRODUCES
+    description: The source paper presents the target method, model, dataset, or concept as its own contribution, either by explicit wording or unambiguous first-person document framing.
+    source_types: [PAPER]
+    target_types: [METHOD, MODEL, DATASET, CONCEPT]
+    aliases: [proposes, presents]
+    evidence_cues: ['\b(?:introduce|propose|present|develop|construct|design|formulat)(?:e|es|ed|s|d)?\b', '\bturn(?:s|ed)?\b[^.!?]{0,80}\binto\b']
+    guidance: First-person contribution framing that introduces, presents, or discusses a named new variant developed in the source - even with the verb 'discuss', when paired with its source-defined algorithm, equation, or result heading - supports PAPER INTRODUCES variant, alongside the variant's lineage relation. The paper also introduces a concept its own results, theorems, or conclusions present as a finding or formulation established in the source.
+    counter_examples:
+      - "a cited or background variant the paper merely surveys"
+      - "known background or an assumption"
+      - "a concept the paper merely uses"
+  - name: USES_METHOD
+    description: The source paper, method, or model explicitly uses, applies, combines, or incorporates the target method or model.
+    source_types: [PAPER, METHOD, MODEL]
+    target_types: [METHOD, MODEL]
+    aliases: [applies, incorporates]
+    evidence_cues: ['\b(?:uses?|used|appl(?:y|ies|ied)|adopt(?:s|ed)?|combin(?:e|es|ed)|incorporat(?:e|es|ed)|employ(?:s|ed)?|perform(?:s|ed)?|reali[sz](?:e|es|ed))\b', '\btrain(?:ed|ing)?\b[^.!?]{0,32}\b(?:by|using|with)\b']
+    guidance: When an optimizer, training algorithm, objective, or regularizer fits a model, the model USES_METHOD that technique, even when prose says the technique was evaluated 'on' the model; 'compare X to train Y' makes Y USES_METHOD X. Separately, the PAPER USES_METHOD an experimental model when its authors say they investigated, trained, or learned it, and a method or process its own approach explicitly applies; emit both facts when a passage supports both.
+    counter_examples:
+      - "lineage such as 'a variant of' or 'derives from', which is BUILDS_ON"
+      - "introducing or describing a method without applying it"
+  - name: USES_CONCEPT
+    description: The source paper, method, or model explicitly invokes, assumes, or applies the target theorem, principle, representation, or other concept.
+    source_types: [PAPER, METHOD, MODEL]
+    target_types: [CONCEPT]
+    aliases: [invokes, assumes]
+    evidence_cues: ['\b(?:use|uses|used|invoke|invokes|invoked|assume|assumes|assumed|apply|applies|applied)\b', '\bby\s+the\b[^.!?]{0,80}\btheorem\b']
+    guidance: An invocation such as 'by the X theorem' inside the source paper's own proof or derivation supports PAPER USES_CONCEPT X.
+    counter_examples:
+      - "a background mention"
+      - "a proof merely summarized from cited work"
+  - name: EVALUATED_ON
+    description: The source paper, method, or model is explicitly evaluated, tested, or benchmarked on the target dataset.
+    source_types: [PAPER, METHOD, MODEL]
+    target_types: [DATASET]
+    aliases: [tested_on, benchmarked_on]
+    evidence_cues: ['\b(?:evaluat|test|benchmark)(?:e|ed|ing|s)?\b', '\b(?:results?|performance|accuracy|error|score|improvement)\b[^.!?]{0,80}\b(?:on|for)\b', '\b(?:on|for)\s+(?:the\s+)?[^.!?]{0,64}\b(?:dataset|benchmark|test\s+set)\b']
+    guidance: Result tables, figure captions, and experimental setup state this even without the verb 'evaluate'; pair every method or model shown as a measured series with every dataset the table or caption assigns to it. The PAPER is separately EVALUATED_ON a dataset its own experiment or results table measures, or that its authors say they studied or used as an experiment; this complements each method- or model-level fact, which needs that method or model named or unambiguously anteceded.
+    counter_examples:
+      - "a dataset label or cited result with no experiment of the source paper"
+  - name: ADDRESSES
+    description: The source paper, method, or model explicitly tackles or performs the target task or scientific problem.
+    source_types: [PAPER, METHOD, MODEL]
+    target_types: [TASK]
+    aliases: [performs, solves, targets]
+    guidance: A title that connects the work to a task with 'for', 'on', or 'recognition' states it; so does a dedicated section whose heading names the task and whose body states the endpoint's analysis, operation, or experiment, quoted together.
+    counter_examples:
+      - "a title that merely co-occurs with a topic"
+      - "a heading alone"
+      - "a background section surveying the task"
+    evidence_cues: ['\b(?:address|perform|solve|tackle|target)(?:e|ed|ing|s)?\b', '\b(?:fine[- ]tun(?:e|ed|ing)|train(?:ed|ing)?)\b[^.!?]{0,48}\b(?:for|on)\b']
+  - name: TRAINED_ON
+    description: The source method or model is explicitly trained, fitted, or optimized using the target dataset, including when its weights are explicitly initialized or transferred from a model pretrained on that dataset.
+    source_types: [METHOD, MODEL]
+    target_types: [DATASET]
+    aliases: [learned_from, fitted_on]
+    counter_examples:
+      - "an unnamed pretraining dataset"
+      - "an architecture reused without its learned weights"
+    evidence_cues: ['\b(?:train|pretrain|fit|optimi[sz])(?:ed|ing|s)?\b', '\b(?:use|uses|used)\b[^.!?]{0,80}\b(?:train(?:ing)?(?:\s+(?:set|data))?|images?|examples?|samples?)\b']
+  - name: BUILDS_ON
+    description: The source paper, method, or model explicitly extends, adapts, derives from, or is based on the target paper, method, or model.
+    source_types: [PAPER, METHOD, MODEL]
+    target_types: [PAPER, METHOD, MODEL]
+    aliases: [extends, based_on, derived_from]
+    guidance: Explicit lineage - 'a variant of', 'follows', 'derives from', inheriting or combining another method's ideas, advantages, properties, or capabilities.
+    counter_examples:
+      - "operationally executing, applying, or incorporating a method or model as a component, which is USES_METHOD"
+    evidence_cues: ['\b(?:extend|adapt|derive)(?:s|d)?\b|\bbased\s+on\b|\bbuilds?\s+on\b|\binspired\s+by\b']
+  - name: OUTPERFORMS
+    description: The source method or model is explicitly reported to perform better than the target method or model on a stated comparison.
+    source_types: [METHOD, MODEL]
+    target_types: [METHOD, MODEL]
+    aliases: [surpasses, improves_over]
+    evidence_cues: ['\b(?:outperform|surpass)(?:s|ed)?\b|\bbetter\s+than\b', '\b(?:faster|higher|lower|more\s+(?:accurate|reliable)|less\s+[^.!?]{0,32})\b[^.!?]{0,80}\bthan\b']
+  - name: DEVELOPED_BY
+    description: The source method or model is explicitly credited as developed or created by the target person or organization.
+    source_types: [METHOD, MODEL]
+    target_types: [PERSON, ORGANIZATION]
+    aliases: [created_by]
+    evidence_cues: ['\b(?:developed|created|designed)\s+by\b']
+  - name: AFFILIATED_WITH
+    description: The source person is explicitly affiliated with the target organization in the publication.
+    source_types: [PERSON]
+    target_types: [ORGANIZATION]
+    aliases: [works_at, member_of]

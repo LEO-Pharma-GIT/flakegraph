@@ -1,0 +1,51 @@
+# Public distributed benchmark profile for the bundled text-native corpus.
+# The submitter discovers local files once and stores their bytes in the shared
+# artifact store; PostgreSQL retains checksums and object references. Worker pods
+# therefore do not need the repository's data directory mounted.
+runtime:
+  runtime: kubernetes
+job:
+  # Keep graph identity identical across benchmark environments because stable
+  # chunk IDs are included in extraction prompts.
+  graph_id: martial-arts-history-v1
+files:
+  source: local
+  input_path: data/martial_arts/files
+  # The benchmark dataset is flat. Non-recursive globs also avoid traversing
+  # Kubernetes ConfigMap projection internals when submitted in-cluster.
+  include_globs:
+    - "*.pdf"
+    - "*.docx"
+    - "*.pptx"
+    - "*.xlsx"
+    - "*.html"
+    - "*.htm"
+    - "*.txt"
+    - "*.md"
+    - "*.markdown"
+ocr:
+  provider: builtin_text
+llm:
+  # Kubernetes injects the chart-managed Service URL and pinned model identity.
+  provider: vllm_local
+  endpoint: ${KG_LLM_ENDPOINT}
+  model: ${KG_LLM_MODEL}
+embedding:
+  # Embeddings execute inside the finalization runtime and remain independent
+  # from the chart-managed generative model service.
+  provider: sentence_transformers
+  model: sentence-transformers/all-MiniLM-L6-v2
+  dimension: 384
+  batch_size: 32
+ontology:
+  profile_path: data/martial_arts/ontology.yaml
+graph:
+  # Benchmarks must export invalid graphs so quality failures become metrics.
+  # Production profiles retain the fail-closed default from GraphSettings.
+  fail_on_quality_error: false
+writer:
+  provider: local_artifacts
+  output_path: /data/output
+cache:
+  # Cross-run caches would make wall-time comparisons misleading.
+  provider: none

@@ -1,0 +1,40 @@
+# Distributed benchmark profile for the locally downloaded paper corpus.
+# The submitter uploads source bytes to shared object storage, so worker pods do
+# not need the repository or ignored files directory mounted.
+runtime:
+  runtime: kubernetes
+job:
+  graph_id: famous-deep-learning-papers-v1
+files:
+  source: local
+  input_path: data/deep_learning_papers/files
+  include_globs:
+    - "*.pdf"
+ocr:
+  # Coherent text layers stay on the deterministic parser. Scans and malformed
+  # embedded text fall through to MinerU without OCR cost for the rest.
+  provider: fallback
+  fallback_primary_provider: builtin_text
+  fallback_secondary_provider: mineru_internal
+  fallback_min_characters_per_page: 80
+  mineru_method: ocr
+  mineru_backend: pipeline
+  timeout_seconds: 3600
+llm:
+  provider: vllm_local
+  endpoint: ${KG_LLM_ENDPOINT}
+  model: ${KG_LLM_MODEL}
+embedding:
+  provider: sentence_transformers
+  model: sentence-transformers/all-MiniLM-L6-v2
+  dimension: 384
+  batch_size: 32
+ontology:
+  profile_path: data/deep_learning_papers/ontology.yaml
+graph:
+  fail_on_quality_error: false
+writer:
+  provider: local_artifacts
+  output_path: /data/output
+cache:
+  provider: none

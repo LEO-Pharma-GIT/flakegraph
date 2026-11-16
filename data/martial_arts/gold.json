@@ -1,0 +1,3321 @@
+{
+  "schema_version": 2,
+  "version": "2.1.0",
+  "name": "martial-arts-history-v1",
+  "description": "A canonical FlakeGraph benchmark corpus about selected martial arts, combat sports, people, institutions, practices, and public events. It annotates exhaustively: every entity and relation of the ontology that the ten documents state, so precision and F1 are scored as well as recall. The corpus treats martial arts history as a connected record of exchange and codification. It avoids claims that a single person exclusively founded a broad tradition and avoids unsupported direct-lineage claims.",
+  "evaluation_scope": {
+    "entity_coverage": "exhaustive",
+    "relation_coverage": "exhaustive"
+  },
+  "license": "CC0-1.0",
+  "ontology_path": "data/martial_arts/ontology.yaml",
+  "thresholds": {
+    "entity_precision": 0.5,
+    "entity_recall": 0.8,
+    "triple_precision": 0.7,
+    "triple_recall": 0.75,
+    "min_evidence_support": 0.75,
+    "max_isolate_ratio": 0.5,
+    "min_two_hop_recoverability": 0.75
+  },
+  "documents": [
+    {
+      "id": "doc_crossroads",
+      "path": "data/martial_arts/files/martial-arts-crossroads.md",
+      "checksum": "6532c5b1901603a56713ca656283aae2f479c59a9e4eec9a9bc0101bc5d6da1f"
+    },
+    {
+      "id": "doc_interview",
+      "path": "data/martial_arts/files/martial-arts-interview.docx",
+      "checksum": "38df11f049789a53ef1606808fd81d882cd0dad7e4b82672e8da29b7a834bfe0"
+    },
+    {
+      "id": "doc_lineages",
+      "path": "data/martial_arts/files/martial-arts-lineages.pdf",
+      "checksum": "bf04551b6b764eeab295075887e3e0380da2eb8fee4857e3c78528014dba05e4"
+    },
+    {
+      "id": "doc_heritage",
+      "path": "data/martial_arts/files/martial-arts-living-heritage.txt",
+      "checksum": "b9cef925572ae6ec69cad6215b1c34ba68bb210b436a397e30ced820afbcfb29"
+    },
+    {
+      "id": "doc_olympics",
+      "path": "data/martial_arts/files/martial-arts-olympic-program.md",
+      "checksum": "543071b2db4dd64b73dd28aa2ae49d341e711e8d0d39e2affc9434990fcc29b1"
+    },
+    {
+      "id": "doc_overview",
+      "path": "data/martial_arts/files/martial-arts-overview.pdf",
+      "checksum": "f346c43aebd87d46b4200ebc8d35fa0f30b9a5930b865dd9c52895f4b81ebfe4"
+    },
+    {
+      "id": "doc_rules",
+      "path": "data/martial_arts/files/martial-arts-rules-and-regulators.md",
+      "checksum": "08291b13c2dae3300a7b7c678316b999093d89e8d67721f249b088e268230ed0"
+    },
+    {
+      "id": "doc_schools",
+      "path": "data/martial_arts/files/martial-arts-schools.pptx",
+      "checksum": "f2826f555cc905c5cc2dee3746c2bdcd8276000059ae18d26ad96ea082a68ab7"
+    },
+    {
+      "id": "doc_timeline",
+      "path": "data/martial_arts/files/martial-arts-timeline.html",
+      "checksum": "8a6e49a43f29e0a52cdb80375ce427a3c8a2d2decc472d3e4aba7323145efda5"
+    },
+    {
+      "id": "doc_smoke",
+      "path": "data/martial_arts/files/smoke.txt",
+      "checksum": "c738f7609b11dab79ba1e0f548972ca2feff7fd4dfd91eeccaec73cfe6867139"
+    }
+  ],
+  "entities": [
+    {
+      "id": "jigoro_kano",
+      "name": "Jigoro Kano",
+      "type": "PERSON",
+      "aliases": [
+        "Kano Jigoro",
+        "Kano"
+      ]
+    },
+    {
+      "id": "mitsuyo_maeda",
+      "name": "Mitsuyo Maeda",
+      "type": "PERSON",
+      "aliases": [
+        "Conde Koma",
+        "Maeda"
+      ]
+    },
+    {
+      "id": "carlos_gracie",
+      "name": "Carlos Gracie",
+      "type": "PERSON",
+      "aliases": []
+    },
+    {
+      "id": "helio_gracie",
+      "name": "Helio Gracie",
+      "type": "PERSON",
+      "aliases": []
+    },
+    {
+      "id": "gichin_funakoshi",
+      "name": "Gichin Funakoshi",
+      "type": "PERSON",
+      "aliases": [
+        "Funakoshi Gichin",
+        "Funakoshi"
+      ]
+    },
+    {
+      "id": "choi_hong_hi",
+      "name": "Choi Hong Hi",
+      "type": "PERSON",
+      "aliases": [
+        "General Choi",
+        "Choi"
+      ]
+    },
+    {
+      "id": "bruce_lee",
+      "name": "Bruce Lee",
+      "type": "PERSON",
+      "aliases": [
+        "Lee Jun-fan",
+        "Lee"
+      ]
+    },
+    {
+      "id": "mestre_bimba",
+      "name": "Mestre Bimba",
+      "type": "PERSON",
+      "aliases": [
+        "Manuel dos Reis Machado"
+      ]
+    },
+    {
+      "id": "joseph_charlemont",
+      "name": "Joseph Charlemont",
+      "type": "PERSON",
+      "aliases": []
+    },
+    {
+      "id": "john_graham_chambers",
+      "name": "John Graham Chambers",
+      "type": "PERSON",
+      "aliases": [
+        "John Chambers"
+      ]
+    },
+    {
+      "id": "judo",
+      "name": "Judo",
+      "type": "MARTIAL_ART",
+      "aliases": [
+        "Kodokan judo"
+      ]
+    },
+    {
+      "id": "japanese_jujutsu",
+      "name": "Japanese jujutsu",
+      "type": "MARTIAL_ART",
+      "aliases": [
+        "jujutsu",
+        "jujitsu"
+      ]
+    },
+    {
+      "id": "brazilian_jiu_jitsu",
+      "name": "Brazilian Jiu-Jitsu",
+      "type": "MARTIAL_ART",
+      "aliases": [
+        "BJJ",
+        "Brazilian jiu-jitsu"
+      ]
+    },
+    {
+      "id": "mixed_martial_arts",
+      "name": "Mixed Martial Arts",
+      "type": "MARTIAL_ART",
+      "aliases": [
+        "MMA",
+        "mixed martial arts"
+      ]
+    },
+    {
+      "id": "karate",
+      "name": "Karate",
+      "type": "MARTIAL_ART",
+      "aliases": [
+        "Okinawan karate",
+        "Sport karate",
+        "Japanese karate"
+      ]
+    },
+    {
+      "id": "taekwondo",
+      "name": "Taekwondo",
+      "type": "MARTIAL_ART",
+      "aliases": [
+        "tae kwon do",
+        "Olympic-style taekwondo"
+      ]
+    },
+    {
+      "id": "taekkyeon",
+      "name": "Taekkyeon",
+      "type": "MARTIAL_ART",
+      "aliases": []
+    },
+    {
+      "id": "ssireum",
+      "name": "Ssireum",
+      "type": "MARTIAL_ART",
+      "aliases": [
+        "Ssirum",
+        "Korean wrestling"
+      ]
+    },
+    {
+      "id": "boxing",
+      "name": "Boxing",
+      "type": "MARTIAL_ART",
+      "aliases": [
+        "modern boxing",
+        "English boxing"
+      ]
+    },
+    {
+      "id": "savate",
+      "name": "Savate",
+      "type": "MARTIAL_ART",
+      "aliases": [
+        "French boxing",
+        "boxe francaise"
+      ]
+    },
+    {
+      "id": "jeet_kune_do",
+      "name": "Jeet Kune Do",
+      "type": "MARTIAL_ART",
+      "aliases": [
+        "JKD"
+      ]
+    },
+    {
+      "id": "wing_chun",
+      "name": "Wing Chun",
+      "type": "MARTIAL_ART",
+      "aliases": [
+        "Wing Tsun",
+        "Wing Chun experience"
+      ]
+    },
+    {
+      "id": "capoeira",
+      "name": "Capoeira",
+      "type": "MARTIAL_ART",
+      "aliases": []
+    },
+    {
+      "id": "muay_thai",
+      "name": "Muay Thai",
+      "type": "MARTIAL_ART",
+      "aliases": [
+        "Thai boxing"
+      ]
+    },
+    {
+      "id": "pencak_silat",
+      "name": "Pencak Silat",
+      "type": "MARTIAL_ART",
+      "aliases": [
+        "pencak silat"
+      ]
+    },
+    {
+      "id": "kodokan",
+      "name": "Kodokan",
+      "type": "SCHOOL",
+      "aliases": [
+        "Kodokan Judo Institute"
+      ]
+    },
+    {
+      "id": "international_judo_federation",
+      "name": "International Judo Federation",
+      "type": "ORGANIZATION",
+      "aliases": [
+        "IJF"
+      ]
+    },
+    {
+      "id": "international_bjj_federation",
+      "name": "International Brazilian Jiu-Jitsu Federation",
+      "type": "ORGANIZATION",
+      "aliases": [
+        "IBJJF"
+      ]
+    },
+    {
+      "id": "ultimate_fighting_championship",
+      "name": "Ultimate Fighting Championship",
+      "type": "ORGANIZATION",
+      "aliases": [
+        "UFC"
+      ]
+    },
+    {
+      "id": "association_boxing_commissions",
+      "name": "Association of Boxing Commissions and Combative Sports",
+      "type": "ORGANIZATION",
+      "aliases": [
+        "Association of Boxing Commissions",
+        "ABC"
+      ]
+    },
+    {
+      "id": "world_taekwondo",
+      "name": "World Taekwondo",
+      "type": "ORGANIZATION",
+      "aliases": [
+        "WT",
+        "World Taekwondo Federation"
+      ]
+    },
+    {
+      "id": "world_karate_federation",
+      "name": "World Karate Federation",
+      "type": "ORGANIZATION",
+      "aliases": [
+        "WKF"
+      ]
+    },
+    {
+      "id": "international_olympic_committee",
+      "name": "International Olympic Committee",
+      "type": "ORGANIZATION",
+      "aliases": [
+        "IOC"
+      ]
+    },
+    {
+      "id": "unesco",
+      "name": "UNESCO",
+      "type": "ORGANIZATION",
+      "aliases": [
+        "United Nations Educational Scientific and Cultural Organization"
+      ]
+    },
+    {
+      "id": "french_savate_federation",
+      "name": "French Savate Federation",
+      "type": "ORGANIZATION",
+      "aliases": [
+        "Federation Francaise de Savate"
+      ]
+    },
+    {
+      "id": "tokyo",
+      "name": "Tokyo",
+      "type": "LOCATION",
+      "aliases": []
+    },
+    {
+      "id": "japan",
+      "name": "Japan",
+      "type": "LOCATION",
+      "aliases": [
+        "mainland Japan"
+      ]
+    },
+    {
+      "id": "okinawa",
+      "name": "Okinawa",
+      "type": "LOCATION",
+      "aliases": [
+        "Ryukyu Islands"
+      ]
+    },
+    {
+      "id": "south_korea",
+      "name": "Republic of Korea",
+      "type": "LOCATION",
+      "aliases": [
+        "South Korea",
+        "Korea"
+      ]
+    },
+    {
+      "id": "brazil",
+      "name": "Brazil",
+      "type": "LOCATION",
+      "aliases": []
+    },
+    {
+      "id": "united_states",
+      "name": "United States",
+      "type": "LOCATION",
+      "aliases": [
+        "United States of America",
+        "USA"
+      ]
+    },
+    {
+      "id": "denver",
+      "name": "Denver",
+      "type": "LOCATION",
+      "aliases": []
+    },
+    {
+      "id": "france",
+      "name": "France",
+      "type": "LOCATION",
+      "aliases": []
+    },
+    {
+      "id": "england",
+      "name": "England",
+      "type": "LOCATION",
+      "aliases": []
+    },
+    {
+      "id": "hong_kong",
+      "name": "Hong Kong",
+      "type": "LOCATION",
+      "aliases": []
+    },
+    {
+      "id": "indonesia",
+      "name": "Indonesia",
+      "type": "LOCATION",
+      "aliases": []
+    },
+    {
+      "id": "australia",
+      "name": "Australia",
+      "type": "LOCATION",
+      "aliases": []
+    },
+    {
+      "id": "long_beach",
+      "name": "Long Beach",
+      "type": "LOCATION",
+      "aliases": [
+        "Long Beach California"
+      ]
+    },
+    {
+      "id": "thailand",
+      "name": "Thailand",
+      "type": "LOCATION",
+      "aliases": [
+        "Siam"
+      ]
+    },
+    {
+      "id": "tokyo_1964",
+      "name": "Tokyo 1964 Olympic Games",
+      "type": "EVENT",
+      "aliases": [
+        "Tokyo 1964"
+      ]
+    },
+    {
+      "id": "seoul_1988",
+      "name": "Seoul 1988 Olympic Games",
+      "type": "EVENT",
+      "aliases": [
+        "Seoul 1988",
+        "Seoul 1988 demonstration"
+      ]
+    },
+    {
+      "id": "sydney_2000",
+      "name": "Sydney 2000 Olympic Games",
+      "type": "EVENT",
+      "aliases": [
+        "Sydney 2000"
+      ]
+    },
+    {
+      "id": "tokyo_2020",
+      "name": "Tokyo 2020 Olympic Games",
+      "type": "EVENT",
+      "aliases": [
+        "Tokyo 2020"
+      ]
+    },
+    {
+      "id": "ufc_1",
+      "name": "UFC 1",
+      "type": "EVENT",
+      "aliases": [
+        "The Beginning"
+      ]
+    },
+    {
+      "id": "long_beach_1964",
+      "name": "1964 Long Beach International Karate Championships",
+      "type": "EVENT",
+      "aliases": [
+        "1964 Long Beach Internationals",
+        "Long Beach International Karate Championships"
+      ]
+    },
+    {
+      "id": "st_louis_1904",
+      "name": "St. Louis 1904 Olympic Games",
+      "type": "EVENT",
+      "aliases": [
+        "St Louis 1904"
+      ]
+    },
+    {
+      "id": "throwing_techniques",
+      "name": "throwing techniques",
+      "type": "TECHNIQUE",
+      "aliases": [
+        "throws",
+        "throwing",
+        "nage-waza",
+        "throw",
+        "controlled\nprojection"
+      ]
+    },
+    {
+      "id": "ground_fighting",
+      "name": "ground fighting",
+      "type": "TECHNIQUE",
+      "aliases": [
+        "ne-waza",
+        "groundwork",
+        "ground control"
+      ]
+    },
+    {
+      "id": "joint_locks",
+      "name": "joint locks",
+      "type": "TECHNIQUE",
+      "aliases": [
+        "joint locking",
+        "controlled locks"
+      ]
+    },
+    {
+      "id": "striking",
+      "name": "striking",
+      "type": "TECHNIQUE",
+      "aliases": [
+        "strikes",
+        "striking methods"
+      ]
+    },
+    {
+      "id": "wrestling",
+      "name": "wrestling",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "kicking",
+      "name": "kicking",
+      "type": "TECHNIQUE",
+      "aliases": [
+        "kicks",
+        "French kicks",
+        "established French kicks",
+        "kicking nodes",
+        "French kicking practice"
+      ]
+    },
+    {
+      "id": "punching",
+      "name": "punching",
+      "type": "TECHNIQUE",
+      "aliases": [
+        "punches",
+        "English boxing punches",
+        "direct punching",
+        "punching mechanics",
+        "refined punching",
+        "punch",
+        "boxing punches"
+      ]
+    },
+    {
+      "id": "randori",
+      "name": "randori",
+      "type": "PRACTICE",
+      "aliases": [
+        "free practice"
+      ]
+    },
+    {
+      "id": "kata",
+      "name": "kata",
+      "type": "PRACTICE",
+      "aliases": [
+        "forms",
+        "Formal sequences",
+        "solo forms",
+        "kata procedures",
+        "Karate kata"
+      ]
+    },
+    {
+      "id": "belt_ranking",
+      "name": "belt ranking",
+      "type": "PRACTICE",
+      "aliases": [
+        "kyu-dan ranking",
+        "dan",
+        "kyu and dan progression"
+      ]
+    },
+    {
+      "id": "sparring",
+      "name": "sparring",
+      "type": "PRACTICE",
+      "aliases": [
+        "live practice",
+        "boxing sparring"
+      ]
+    },
+    {
+      "id": "roda",
+      "name": "Capoeira roda",
+      "type": "PRACTICE",
+      "aliases": [
+        "roda",
+        "capoeira circle"
+      ]
+    },
+    {
+      "id": "unified_rules_mma",
+      "name": "Unified Rules of Mixed Martial Arts",
+      "type": "WORK",
+      "aliases": [
+        "Unified Rules of MMA",
+        "Unified Rules"
+      ]
+    },
+    {
+      "id": "queensberry_rules",
+      "name": "Marquess of Queensberry Rules",
+      "type": "WORK",
+      "aliases": [
+        "Queensberry Rules"
+      ]
+    },
+    {
+      "id": "karate_do_kyohan",
+      "name": "Karate-do Kyohan",
+      "type": "WORK",
+      "aliases": [
+        "The Master Text"
+      ]
+    },
+    {
+      "id": "maximum_efficiency",
+      "name": "maximum efficiency",
+      "type": "CONCEPT",
+      "aliases": [
+        "seiryoku zenyo"
+      ]
+    },
+    {
+      "id": "mutual_welfare",
+      "name": "mutual welfare and benefit",
+      "type": "CONCEPT",
+      "aliases": [
+        "jita kyoei"
+      ]
+    },
+    {
+      "id": "adaptability",
+      "name": "adaptability",
+      "type": "CONCEPT",
+      "aliases": [
+        "personal adaptation"
+      ]
+    },
+    {
+      "id": "ent_concept_olympic_movement",
+      "name": "Olympic movement",
+      "type": "CONCEPT",
+      "aliases": []
+    },
+    {
+      "id": "ent_person_marquess",
+      "name": "Marquess of Queensberry",
+      "type": "PERSON",
+      "aliases": [
+        "Marquess"
+      ]
+    },
+    {
+      "id": "ent_practice_kyu",
+      "name": "kyu",
+      "type": "PRACTICE",
+      "aliases": []
+    },
+    {
+      "id": "ent_practice_submission",
+      "name": "submission",
+      "type": "PRACTICE",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_balance_breaking",
+      "name": "balance breaking",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_belt_grip",
+      "name": "belt grip",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_clinch",
+      "name": "clinch",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_clinch_tactics",
+      "name": "clinch tactics",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_clinching",
+      "name": "clinching",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_evasions",
+      "name": "evasions",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_footwork",
+      "name": "footwork",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_grappling",
+      "name": "grappling",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_holds",
+      "name": "holds",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_pins",
+      "name": "pins",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_spinning_kick",
+      "name": "spinning kick",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_strangling_techniques",
+      "name": "strangling techniques",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_submission_techniques",
+      "name": "submission techniques",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_submissions",
+      "name": "submissions",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_takedown",
+      "name": "takedown",
+      "type": "TECHNIQUE",
+      "aliases": [
+        "takedowns"
+      ]
+    },
+    {
+      "id": "ent_technique_trips",
+      "name": "trips",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_time_period_1882",
+      "name": "1882",
+      "type": "TIME_PERIOD",
+      "aliases": []
+    },
+    {
+      "id": "ent_time_period_1993",
+      "name": "1993",
+      "type": "TIME_PERIOD",
+      "aliases": []
+    },
+    {
+      "id": "ent_time_period_2021",
+      "name": "2021",
+      "type": "TIME_PERIOD",
+      "aliases": []
+    },
+    {
+      "id": "ent_time_period_late_nineteenth_century",
+      "name": "late nineteenth century",
+      "type": "TIME_PERIOD",
+      "aliases": []
+    },
+    {
+      "id": "ent_time_period_nineteenth_century",
+      "name": "nineteenth century",
+      "type": "TIME_PERIOD",
+      "aliases": []
+    },
+    {
+      "id": "ent_work_representative_list",
+      "name": "Representative List",
+      "type": "WORK",
+      "aliases": []
+    },
+    {
+      "id": "ent_concept_physical_education",
+      "name": "physical education",
+      "type": "CONCEPT",
+      "aliases": []
+    },
+    {
+      "id": "ent_location_st_louis",
+      "name": "St. Louis",
+      "type": "LOCATION",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_hand_strikes",
+      "name": "hand strikes",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_practice_partner_drills",
+      "name": "partner drills",
+      "type": "PRACTICE",
+      "aliases": []
+    },
+    {
+      "id": "ent_practice_electronic_scoring",
+      "name": "electronic scoring",
+      "type": "PRACTICE",
+      "aliases": []
+    },
+    {
+      "id": "ent_location_sydney",
+      "name": "Sydney",
+      "type": "LOCATION",
+      "aliases": []
+    },
+    {
+      "id": "ent_location_seoul",
+      "name": "Seoul",
+      "type": "LOCATION",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_changes_of_level",
+      "name": "changes of level",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_practice_timed_rounds",
+      "name": "timed rounds",
+      "type": "PRACTICE",
+      "aliases": []
+    },
+    {
+      "id": "ent_practice_challenge_matches",
+      "name": "challenge matches",
+      "type": "PRACTICE",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_grappling_methods",
+      "name": "grappling methods",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_positional_control",
+      "name": "positional control",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_concept_nationalism",
+      "name": "nationalism",
+      "type": "CONCEPT",
+      "aliases": []
+    },
+    {
+      "id": "ent_technique_standing_strikes",
+      "name": "standing strikes",
+      "type": "TECHNIQUE",
+      "aliases": []
+    },
+    {
+      "id": "ent_practice_weight_classes",
+      "name": "weight classes",
+      "type": "PRACTICE",
+      "aliases": []
+    },
+    {
+      "id": "ent_event_2018_unesco_inscription",
+      "name": "2018 UNESCO inscription",
+      "type": "EVENT",
+      "aliases": []
+    },
+    {
+      "id": "ent_event_bruce_lee_s_long_beach_appearance",
+      "name": "Bruce Lee's Long Beach appearance",
+      "type": "EVENT",
+      "aliases": []
+    },
+    {
+      "id": "ent_martial_art_professional_mma",
+      "name": "Professional MMA",
+      "type": "MARTIAL_ART",
+      "aliases": []
+    },
+    {
+      "id": "ent_work_international_brazilian_jiu_jitsu_federation_s_rul",
+      "name": "International Brazilian Jiu-Jitsu Federation's rules",
+      "type": "WORK",
+      "aliases": []
+    }
+  ],
+  "relations": [
+    {
+      "id": "rel_001",
+      "source": "kodokan",
+      "target": "jigoro_kano",
+      "relation_type": "FOUNDED_BY",
+      "evidence_contains": [
+        "founded the Kodokan"
+      ],
+      "observations": [
+        {
+          "document": "doc_schools",
+          "sentence": "Jigoro Kano founded the Kodokan in Tokyo in 1882 as the institutional home of his educational project.",
+          "evidence_contains": "founded the Kodokan"
+        },
+        {
+          "document": "doc_smoke",
+          "sentence": "Jigoro Kano founded the Kodokan in Tokyo in 1882.",
+          "evidence_contains": "founded the Kodokan"
+        }
+      ]
+    },
+    {
+      "id": "rel_002",
+      "source": "kodokan",
+      "target": "tokyo",
+      "relation_type": "LOCATED_IN",
+      "evidence_contains": [
+        "Kodokan was established in Tokyo"
+      ],
+      "observations": [
+        {
+          "document": "doc_schools",
+          "sentence": "The Kodokan was established in Tokyo and remains identified with that city.",
+          "evidence_contains": "Kodokan was established in Tokyo"
+        }
+      ]
+    },
+    {
+      "id": "rel_003",
+      "source": "judo",
+      "target": "jigoro_kano",
+      "relation_type": "DEVELOPED_BY",
+      "evidence_contains": [
+        "Kano developed judo"
+      ],
+      "observations": [
+        {
+          "document": "doc_lineages",
+          "sentence": "Jigoro Kano developed judo as a modern system of physical education, disciplined practice, and ethical learning.",
+          "evidence_contains": "Kano developed judo"
+        },
+        {
+          "document": "doc_smoke",
+          "sentence": "Jigoro Kano developed judo as a modern educational martial art.",
+          "evidence_contains": "Kano developed judo"
+        }
+      ]
+    },
+    {
+      "id": "rel_004",
+      "source": "judo",
+      "target": "japanese_jujutsu",
+      "relation_type": "INFLUENCED_BY",
+      "evidence_contains": [
+        "influenced by Japanese jujutsu"
+      ],
+      "observations": [
+        {
+          "document": "doc_lineages",
+          "sentence": "Judo was influenced by Japanese jujutsu schools whose methods Kano studied and critically reorganized.",
+          "evidence_contains": "influenced by Japanese jujutsu"
+        }
+      ]
+    },
+    {
+      "id": "rel_005",
+      "source": "judo",
+      "target": "randori",
+      "relation_type": "HAS_PRACTICE",
+      "evidence_contains": [
+        "includes randori"
+      ],
+      "observations": [
+        {
+          "document": "doc_interview",
+          "sentence": "Judo includes randori as a structured form of free practice against a resisting partner.",
+          "evidence_contains": "includes randori"
+        }
+      ]
+    },
+    {
+      "id": "rel_006",
+      "source": "judo",
+      "target": "kata",
+      "relation_type": "HAS_PRACTICE",
+      "evidence_contains": [
+        "includes kata"
+      ],
+      "observations": [
+        {
+          "document": "doc_interview",
+          "sentence": "Judo includes kata for the ordered study of principles, situations, and formal technique.",
+          "evidence_contains": "includes kata"
+        }
+      ]
+    },
+    {
+      "id": "rel_007",
+      "source": "judo",
+      "target": "belt_ranking",
+      "relation_type": "HAS_PRACTICE",
+      "evidence_contains": [
+        "uses belt ranking"
+      ],
+      "observations": [
+        {
+          "document": "doc_schools",
+          "sentence": "Judo uses belt ranking to mark stages within its kyu and dan progression.",
+          "evidence_contains": "uses belt ranking"
+        }
+      ]
+    },
+    {
+      "id": "rel_008",
+      "source": "judo",
+      "target": "throwing_techniques",
+      "relation_type": "USES_TECHNIQUE",
+      "evidence_contains": [
+        "uses throwing techniques"
+      ],
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Judo uses throwing techniques to disrupt balance and bring an opponent to the mat.",
+          "evidence_contains": "uses throwing techniques"
+        }
+      ]
+    },
+    {
+      "id": "rel_009",
+      "source": "judo",
+      "target": "ground_fighting",
+      "relation_type": "USES_TECHNIQUE",
+      "evidence_contains": [
+        "uses ground fighting"
+      ],
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Judo uses ground fighting for pins, controlled locks, and carefully limited strangling techniques.",
+          "evidence_contains": "uses ground fighting"
+        }
+      ]
+    },
+    {
+      "id": "rel_010",
+      "source": "judo",
+      "target": "japan",
+      "relation_type": "ORIGINATED_IN",
+      "evidence_contains": [
+        "originated in Japan"
+      ],
+      "observations": [
+        {
+          "document": "doc_timeline",
+          "sentence": "Judo originated in Japan during the institutional changes of the late nineteenth century.",
+          "evidence_contains": "originated in Japan"
+        }
+      ]
+    },
+    {
+      "id": "rel_011",
+      "source": "judo",
+      "target": "international_judo_federation",
+      "relation_type": "GOVERNED_BY",
+      "evidence_contains": [
+        "governed by the International Judo Federation"
+      ],
+      "observations": [
+        {
+          "document": "doc_rules",
+          "sentence": "International judo competition is governed by the International Judo Federation under its published sporting rules.",
+          "evidence_contains": "governed by the International Judo Federation"
+        }
+      ]
+    },
+    {
+      "id": "rel_012",
+      "source": "international_judo_federation",
+      "target": "international_olympic_committee",
+      "relation_type": "RECOGNIZED_BY",
+      "evidence_contains": [
+        "recognized by the International Olympic Committee"
+      ],
+      "observations": [
+        {
+          "document": "doc_olympics",
+          "sentence": "The International Judo Federation is recognized by the International Olympic Committee as judo's international federation.",
+          "evidence_contains": "recognized by the International Olympic Committee"
+        }
+      ]
+    },
+    {
+      "id": "rel_013",
+      "source": "judo",
+      "target": "tokyo_1964",
+      "relation_type": "PRESENTED_AT",
+      "evidence_contains": [
+        "presented as an Olympic medal sport"
+      ],
+      "observations": [
+        {
+          "document": "doc_olympics",
+          "sentence": "Judo was presented as an Olympic medal sport at the Tokyo 1964 Olympic Games.",
+          "evidence_contains": "presented as an Olympic medal sport"
+        }
+      ]
+    },
+    {
+      "id": "rel_014",
+      "source": "tokyo_1964",
+      "target": "tokyo",
+      "relation_type": "OCCURRED_IN",
+      "evidence_contains": [
+        "occurred in Tokyo"
+      ],
+      "observations": [
+        {
+          "document": "doc_olympics",
+          "sentence": "The Tokyo 1964 Olympic Games occurred in Tokyo, where judo entered the Olympic programme.",
+          "evidence_contains": "occurred in Tokyo"
+        }
+      ]
+    },
+    {
+      "id": "rel_015",
+      "source": "jigoro_kano",
+      "target": "international_olympic_committee",
+      "relation_type": "PART_OF",
+      "evidence_contains": [
+        "part of the International Olympic Committee"
+      ],
+      "observations": [
+        {
+          "document": "doc_timeline",
+          "sentence": "Jigoro Kano became part of the International Olympic Committee as a member in 1909.",
+          "evidence_contains": "part of the International Olympic Committee"
+        }
+      ]
+    },
+    {
+      "id": "rel_016",
+      "source": "judo",
+      "target": "maximum_efficiency",
+      "relation_type": "EMPHASIZES",
+      "evidence_contains": [
+        "emphasizes maximum efficiency"
+      ],
+      "observations": [
+        {
+          "document": "doc_interview",
+          "sentence": "Judo emphasizes maximum efficiency as a principle for directing physical and mental energy.",
+          "evidence_contains": "emphasizes maximum efficiency"
+        }
+      ]
+    },
+    {
+      "id": "rel_017",
+      "source": "judo",
+      "target": "mutual_welfare",
+      "relation_type": "EMPHASIZES",
+      "evidence_contains": [
+        "emphasizes mutual welfare and benefit"
+      ],
+      "observations": [
+        {
+          "document": "doc_interview",
+          "sentence": "Judo emphasizes mutual welfare and benefit alongside effective technical practice.",
+          "evidence_contains": "emphasizes mutual welfare and benefit"
+        }
+      ]
+    },
+    {
+      "id": "rel_018",
+      "source": "mitsuyo_maeda",
+      "target": "kodokan",
+      "relation_type": "PART_OF",
+      "evidence_contains": [
+        "part of the Kodokan community"
+      ],
+      "observations": [
+        {
+          "document": "doc_lineages",
+          "sentence": "Mitsuyo Maeda was part of the Kodokan community before his long period of travel and public competition.",
+          "evidence_contains": "part of the Kodokan community"
+        }
+      ]
+    },
+    {
+      "id": "rel_019",
+      "source": "carlos_gracie",
+      "target": "mitsuyo_maeda",
+      "relation_type": "STUDIED_UNDER",
+      "evidence_contains": [
+        "studied under Mitsuyo Maeda"
+      ],
+      "observations": [
+        {
+          "document": "doc_lineages",
+          "sentence": "Carlos Gracie studied under Mitsuyo Maeda during the Japanese judoka's years in Brazil.",
+          "evidence_contains": "studied under Mitsuyo Maeda"
+        }
+      ]
+    },
+    {
+      "id": "rel_020",
+      "source": "mitsuyo_maeda",
+      "target": "carlos_gracie",
+      "relation_type": "TAUGHT",
+      "evidence_contains": [
+        "Maeda taught Carlos Gracie"
+      ],
+      "observations": [
+        {
+          "document": "doc_interview",
+          "sentence": "Mitsuyo Maeda taught Carlos Gracie grappling methods, although Brazilian Jiu-Jitsu later grew through many teachers and settings.",
+          "evidence_contains": "Maeda taught Carlos Gracie"
+        }
+      ]
+    },
+    {
+      "id": "rel_021",
+      "source": "brazilian_jiu_jitsu",
+      "target": "carlos_gracie",
+      "relation_type": "POPULARIZED_BY",
+      "evidence_contains": [
+        "popularized by Carlos Gracie"
+      ],
+      "observations": [
+        {
+          "document": "doc_lineages",
+          "sentence": "Brazilian Jiu-Jitsu was popularized by Carlos Gracie through family teaching, challenge matches, and academy organization.",
+          "evidence_contains": "popularized by Carlos Gracie"
+        }
+      ]
+    },
+    {
+      "id": "rel_022",
+      "source": "brazilian_jiu_jitsu",
+      "target": "helio_gracie",
+      "relation_type": "POPULARIZED_BY",
+      "evidence_contains": [
+        "popularized by Helio Gracie"
+      ],
+      "observations": [
+        {
+          "document": "doc_lineages",
+          "sentence": "Brazilian Jiu-Jitsu was also popularized by Helio Gracie through instruction and widely discussed public matches.",
+          "evidence_contains": "popularized by Helio Gracie"
+        }
+      ]
+    },
+    {
+      "id": "rel_023",
+      "source": "brazilian_jiu_jitsu",
+      "target": "judo",
+      "relation_type": "INFLUENCED_BY",
+      "evidence_contains": [
+        "influenced by judo"
+      ],
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "Brazilian Jiu-Jitsu was strongly influenced by judo while Brazilian instructors adapted training priorities over time.",
+          "evidence_contains": "influenced by judo"
+        },
+        {
+          "document": "doc_smoke",
+          "sentence": "Brazilian Jiu-Jitsu was influenced by judo in its approach to grappling practice.",
+          "evidence_contains": "influenced by judo"
+        }
+      ]
+    },
+    {
+      "id": "rel_024",
+      "source": "brazilian_jiu_jitsu",
+      "target": "brazil",
+      "relation_type": "PRACTICED_IN",
+      "evidence_contains": [
+        "practiced in Brazil"
+      ],
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Brazilian Jiu-Jitsu was practiced in Brazil before its later expansion through international academies and tournaments.",
+          "evidence_contains": "practiced in Brazil"
+        }
+      ]
+    },
+    {
+      "id": "rel_025",
+      "source": "brazilian_jiu_jitsu",
+      "target": "ground_fighting",
+      "relation_type": "USES_TECHNIQUE",
+      "evidence_contains": [
+        "uses ground fighting"
+      ],
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Brazilian Jiu-Jitsu uses ground fighting as a central arena for positional control and escape.",
+          "evidence_contains": "uses ground fighting"
+        }
+      ]
+    },
+    {
+      "id": "rel_026",
+      "source": "brazilian_jiu_jitsu",
+      "target": "joint_locks",
+      "relation_type": "USES_TECHNIQUE",
+      "evidence_contains": [
+        "uses joint locks"
+      ],
+      "observations": [
+        {
+          "document": "doc_interview",
+          "sentence": "Brazilian Jiu-Jitsu uses joint locks as submission techniques within training and competition rules.",
+          "evidence_contains": "uses joint locks"
+        }
+      ]
+    },
+    {
+      "id": "rel_027",
+      "source": "brazilian_jiu_jitsu",
+      "target": "international_bjj_federation",
+      "relation_type": "GOVERNED_BY",
+      "required": false,
+      "evidence_contains": [
+        "governed by the International Brazilian Jiu-Jitsu Federation"
+      ],
+      "observations": [
+        {
+          "document": "doc_rules",
+          "sentence": "Many prominent Brazilian Jiu-Jitsu tournaments are governed by the International Brazilian Jiu-Jitsu Federation's rules.",
+          "evidence_contains": "governed by the International Brazilian Jiu-Jitsu Federation"
+        }
+      ]
+    },
+    {
+      "id": "rel_028",
+      "source": "mixed_martial_arts",
+      "target": "ultimate_fighting_championship",
+      "relation_type": "POPULARIZED_BY",
+      "evidence_contains": [
+        "popularized by the Ultimate Fighting Championship"
+      ],
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "Modern mixed martial arts was popularized by the Ultimate Fighting Championship through recurring cross-style events.",
+          "evidence_contains": "popularized by the Ultimate Fighting Championship"
+        }
+      ]
+    },
+    {
+      "id": "rel_029",
+      "source": "mixed_martial_arts",
+      "target": "brazilian_jiu_jitsu",
+      "relation_type": "INFLUENCED_BY",
+      "evidence_contains": [
+        "influenced by Brazilian Jiu-Jitsu"
+      ],
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "Mixed Martial Arts was influenced by Brazilian Jiu-Jitsu, especially in its treatment of ground position and submission risk.",
+          "evidence_contains": "influenced by Brazilian Jiu-Jitsu"
+        }
+      ]
+    },
+    {
+      "id": "rel_030",
+      "source": "mixed_martial_arts",
+      "target": "boxing",
+      "relation_type": "INFLUENCED_BY",
+      "evidence_contains": [
+        "influenced by boxing"
+      ],
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "Mixed Martial Arts was influenced by boxing in punching mechanics, footwork, defense, and timed rounds.",
+          "evidence_contains": "influenced by boxing"
+        }
+      ]
+    },
+    {
+      "id": "rel_031",
+      "source": "mixed_martial_arts",
+      "target": "muay_thai",
+      "relation_type": "INFLUENCED_BY",
+      "evidence_contains": [
+        "influenced by Muay Thai"
+      ],
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "Mixed Martial Arts was influenced by Muay Thai in its use of standing strikes and clinch tactics.",
+          "evidence_contains": "influenced by Muay Thai"
+        }
+      ]
+    },
+    {
+      "id": "rel_032",
+      "source": "mixed_martial_arts",
+      "target": "striking",
+      "relation_type": "USES_TECHNIQUE",
+      "evidence_contains": [
+        "uses striking"
+      ],
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Mixed Martial Arts uses striking while competitors are standing and in permitted ground positions.",
+          "evidence_contains": "uses striking"
+        }
+      ]
+    },
+    {
+      "id": "rel_033",
+      "source": "mixed_martial_arts",
+      "target": "wrestling",
+      "relation_type": "USES_TECHNIQUE",
+      "evidence_contains": [
+        "uses wrestling"
+      ],
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Mixed Martial Arts uses wrestling for takedowns, balance control, and decisions about where a bout continues.",
+          "evidence_contains": "uses wrestling"
+        },
+        {
+          "document": "doc_smoke",
+          "sentence": "Mixed Martial Arts uses wrestling for takedowns and positional control.",
+          "evidence_contains": "uses wrestling"
+        }
+      ]
+    },
+    {
+      "id": "rel_034",
+      "source": "mixed_martial_arts",
+      "target": "ground_fighting",
+      "relation_type": "USES_TECHNIQUE",
+      "evidence_contains": [
+        "uses ground fighting"
+      ],
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Mixed Martial Arts uses ground fighting under restrictions that distinguish regulated sport from an unrestricted fight.",
+          "evidence_contains": "uses ground fighting"
+        }
+      ]
+    },
+    {
+      "id": "rel_035",
+      "source": "mixed_martial_arts",
+      "target": "united_states",
+      "relation_type": "PRACTICED_IN",
+      "evidence_contains": [
+        "practiced in the United States"
+      ],
+      "observations": [
+        {
+          "document": "doc_timeline",
+          "sentence": "Mixed Martial Arts became widely practiced in the United States as commissions adopted clearer sporting rules.",
+          "evidence_contains": "practiced in the United States"
+        }
+      ]
+    },
+    {
+      "id": "rel_036",
+      "source": "mixed_martial_arts",
+      "target": "association_boxing_commissions",
+      "relation_type": "GOVERNED_BY",
+      "required": false,
+      "evidence_contains": [
+        "governed through the Association of Boxing Commissions"
+      ],
+      "observations": [
+        {
+          "document": "doc_rules",
+          "sentence": "Mixed Martial Arts regulation in many participating jurisdictions is governed through the Association of Boxing Commissions and its member commissions.",
+          "evidence_contains": "governed through the Association of Boxing Commissions"
+        }
+      ]
+    },
+    {
+      "id": "rel_037",
+      "source": "mixed_martial_arts",
+      "target": "unified_rules_mma",
+      "relation_type": "DOCUMENTED_IN",
+      "evidence_contains": [
+        "documented in the Unified Rules"
+      ],
+      "observations": [
+        {
+          "document": "doc_rules",
+          "sentence": "Modern professional Mixed Martial Arts is documented in the Unified Rules of Mixed Martial Arts.",
+          "evidence_contains": "documented in the Unified Rules"
+        }
+      ]
+    },
+    {
+      "id": "rel_038",
+      "source": "unified_rules_mma",
+      "target": "association_boxing_commissions",
+      "relation_type": "AUTHORED_BY",
+      "evidence_contains": [
+        "authored and maintained through the Association"
+      ],
+      "observations": [
+        {
+          "document": "doc_rules",
+          "sentence": "The current Unified Rules of Mixed Martial Arts are authored and maintained through the Association of Boxing Commissions.",
+          "evidence_contains": "authored and maintained through the Association"
+        }
+      ]
+    },
+    {
+      "id": "rel_039",
+      "source": "ufc_1",
+      "target": "ultimate_fighting_championship",
+      "relation_type": "PART_OF",
+      "required": false,
+      "evidence_contains": [
+        "part of the Ultimate Fighting Championship"
+      ],
+      "observations": [
+        {
+          "document": "doc_timeline",
+          "sentence": "UFC 1 was part of the Ultimate Fighting Championship's first tournament presentation in 1993.",
+          "evidence_contains": "part of the Ultimate Fighting Championship"
+        }
+      ]
+    },
+    {
+      "id": "rel_040",
+      "source": "ufc_1",
+      "target": "denver",
+      "relation_type": "OCCURRED_IN",
+      "evidence_contains": [
+        "occurred in Denver"
+      ],
+      "observations": [
+        {
+          "document": "doc_timeline",
+          "sentence": "UFC 1 occurred in Denver and placed competitors from several combat backgrounds on one programme.",
+          "evidence_contains": "occurred in Denver"
+        }
+      ]
+    },
+    {
+      "id": "rel_041",
+      "source": "karate",
+      "target": "okinawa",
+      "relation_type": "ORIGINATED_IN",
+      "evidence_contains": [
+        "originated in Okinawa"
+      ],
+      "observations": [
+        {
+          "document": "doc_lineages",
+          "sentence": "Karate originated in Okinawa through changing local practices and exchanges with regional fighting traditions.",
+          "evidence_contains": "originated in Okinawa"
+        },
+        {
+          "document": "doc_smoke",
+          "sentence": "Karate originated in Okinawa before organized instruction carried it to wider audiences.",
+          "evidence_contains": "originated in Okinawa"
+        }
+      ]
+    },
+    {
+      "id": "rel_042",
+      "source": "karate",
+      "target": "japan",
+      "relation_type": "PRACTICED_IN",
+      "required": false,
+      "evidence_contains": [
+        "practiced in mainland Japan"
+      ],
+      "observations": [
+        {
+          "document": "doc_timeline",
+          "sentence": "Karate was practiced in mainland Japan through clubs, universities, demonstrations, and organized instruction.",
+          "evidence_contains": "practiced in mainland Japan"
+        }
+      ]
+    },
+    {
+      "id": "rel_043",
+      "source": "karate",
+      "target": "gichin_funakoshi",
+      "relation_type": "POPULARIZED_BY",
+      "evidence_contains": [
+        "popularized by Gichin Funakoshi"
+      ],
+      "observations": [
+        {
+          "document": "doc_lineages",
+          "sentence": "Karate was popularized by Gichin Funakoshi in mainland Japan, although he represented only one part of a broader Okinawan history.",
+          "evidence_contains": "popularized by Gichin Funakoshi"
+        }
+      ]
+    },
+    {
+      "id": "rel_044",
+      "source": "karate",
+      "target": "striking",
+      "relation_type": "USES_TECHNIQUE",
+      "evidence_contains": [
+        "uses striking"
+      ],
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Karate uses striking through coordinated hand, arm, foot, and leg techniques.",
+          "evidence_contains": "uses striking"
+        }
+      ]
+    },
+    {
+      "id": "rel_045",
+      "source": "karate",
+      "target": "kicking",
+      "relation_type": "USES_TECHNIQUE",
+      "evidence_contains": [
+        "uses kicking"
+      ],
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Karate uses kicking within solo forms, partner drills, and controlled competition.",
+          "evidence_contains": "uses kicking"
+        }
+      ]
+    },
+    {
+      "id": "rel_046",
+      "source": "karate",
+      "target": "kata",
+      "relation_type": "HAS_PRACTICE",
+      "evidence_contains": [
+        "includes kata"
+      ],
+      "observations": [
+        {
+          "document": "doc_interview",
+          "sentence": "Karate includes kata as a practice for preserving and interpreting ordered movement sequences.",
+          "evidence_contains": "includes kata"
+        }
+      ]
+    },
+    {
+      "id": "rel_047",
+      "source": "karate",
+      "target": "world_karate_federation",
+      "relation_type": "GOVERNED_BY",
+      "required": false,
+      "evidence_contains": [
+        "governed by the World Karate Federation"
+      ],
+      "observations": [
+        {
+          "document": "doc_rules",
+          "sentence": "International sport karate events are governed by the World Karate Federation under its competition rules.",
+          "evidence_contains": "governed by the World Karate Federation"
+        }
+      ]
+    },
+    {
+      "id": "rel_048",
+      "source": "world_karate_federation",
+      "target": "international_olympic_committee",
+      "relation_type": "RECOGNIZED_BY",
+      "evidence_contains": [
+        "recognized by the International Olympic Committee"
+      ],
+      "observations": [
+        {
+          "document": "doc_olympics",
+          "sentence": "The World Karate Federation is recognized by the International Olympic Committee as the international federation for sport karate.",
+          "evidence_contains": "recognized by the International Olympic Committee"
+        }
+      ]
+    },
+    {
+      "id": "rel_049",
+      "source": "karate",
+      "target": "tokyo_2020",
+      "relation_type": "PRESENTED_AT",
+      "evidence_contains": [
+        "presented as an Olympic medal sport"
+      ],
+      "observations": [
+        {
+          "document": "doc_olympics",
+          "sentence": "Karate was presented as an Olympic medal sport at the Tokyo 2020 Olympic Games.",
+          "evidence_contains": "presented as an Olympic medal sport"
+        }
+      ]
+    },
+    {
+      "id": "rel_050",
+      "source": "tokyo_2020",
+      "target": "tokyo",
+      "relation_type": "OCCURRED_IN",
+      "evidence_contains": [
+        "occurred in Tokyo in 2021"
+      ],
+      "observations": [
+        {
+          "document": "doc_olympics",
+          "sentence": "The postponed Tokyo 2020 Olympic Games occurred in Tokyo in 2021 while retaining the Tokyo 2020 name.",
+          "evidence_contains": "occurred in Tokyo in 2021"
+        }
+      ]
+    },
+    {
+      "id": "rel_051",
+      "source": "karate",
+      "target": "karate_do_kyohan",
+      "relation_type": "DOCUMENTED_IN",
+      "evidence_contains": [
+        "documented in Karate-do Kyohan"
+      ],
+      "observations": [
+        {
+          "document": "doc_schools",
+          "sentence": "Karate technique and pedagogy were documented in Karate-do Kyohan for an expanding reading public.",
+          "evidence_contains": "documented in Karate-do Kyohan"
+        }
+      ]
+    },
+    {
+      "id": "rel_052",
+      "source": "karate_do_kyohan",
+      "target": "gichin_funakoshi",
+      "relation_type": "AUTHORED_BY",
+      "evidence_contains": [
+        "authored by Gichin Funakoshi"
+      ],
+      "observations": [
+        {
+          "document": "doc_schools",
+          "sentence": "Karate-do Kyohan was authored by Gichin Funakoshi as a systematic presentation of his karate teaching.",
+          "evidence_contains": "authored by Gichin Funakoshi"
+        }
+      ]
+    },
+    {
+      "id": "rel_053",
+      "source": "taekwondo",
+      "target": "south_korea",
+      "relation_type": "PRACTICED_IN",
+      "evidence_contains": [
+        "practiced in the Republic of Korea"
+      ],
+      "observations": [
+        {
+          "document": "doc_timeline",
+          "sentence": "Taekwondo was practiced in the Republic of Korea as schools and national institutions standardized modern curricula.",
+          "evidence_contains": "practiced in the Republic of Korea"
+        }
+      ]
+    },
+    {
+      "id": "rel_054",
+      "source": "taekwondo",
+      "target": "choi_hong_hi",
+      "relation_type": "POPULARIZED_BY",
+      "evidence_contains": [
+        "popularized by Choi Hong Hi"
+      ],
+      "observations": [
+        {
+          "document": "doc_lineages",
+          "sentence": "Taekwondo was popularized by Choi Hong Hi through naming, writing, demonstrations, and international organization.",
+          "evidence_contains": "popularized by Choi Hong Hi"
+        }
+      ]
+    },
+    {
+      "id": "rel_055",
+      "source": "taekwondo",
+      "target": "karate",
+      "relation_type": "INFLUENCED_BY",
+      "required": false,
+      "evidence_contains": [
+        "influenced by karate"
+      ],
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "Early taekwondo curricula were influenced by karate among several sources available to Korean school leaders.",
+          "evidence_contains": "influenced by karate"
+        }
+      ]
+    },
+    {
+      "id": "rel_056",
+      "source": "taekwondo",
+      "target": "kicking",
+      "relation_type": "USES_TECHNIQUE",
+      "evidence_contains": [
+        "uses kicking"
+      ],
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Taekwondo uses kicking with a conspicuous range of turning, jumping, and linear attacks.",
+          "evidence_contains": "uses kicking"
+        }
+      ]
+    },
+    {
+      "id": "rel_057",
+      "source": "taekwondo",
+      "target": "world_taekwondo",
+      "relation_type": "GOVERNED_BY",
+      "required": false,
+      "evidence_contains": [
+        "governed by World Taekwondo"
+      ],
+      "observations": [
+        {
+          "document": "doc_rules",
+          "sentence": "Olympic-style taekwondo competition is governed by World Taekwondo under its published rules.",
+          "evidence_contains": "governed by World Taekwondo"
+        }
+      ]
+    },
+    {
+      "id": "rel_058",
+      "source": "world_taekwondo",
+      "target": "international_olympic_committee",
+      "relation_type": "RECOGNIZED_BY",
+      "evidence_contains": [
+        "recognized by the International Olympic Committee"
+      ],
+      "observations": [
+        {
+          "document": "doc_olympics",
+          "sentence": "World Taekwondo is recognized by the International Olympic Committee as taekwondo's Olympic federation.",
+          "evidence_contains": "recognized by the International Olympic Committee"
+        }
+      ]
+    },
+    {
+      "id": "rel_059",
+      "source": "taekwondo",
+      "target": "seoul_1988",
+      "relation_type": "PRESENTED_AT",
+      "evidence_contains": [
+        "presented as a demonstration sport"
+      ],
+      "observations": [
+        {
+          "document": "doc_olympics",
+          "sentence": "Taekwondo was presented as a demonstration sport at the Seoul 1988 Olympic Games.",
+          "evidence_contains": "presented as a demonstration sport"
+        }
+      ]
+    },
+    {
+      "id": "rel_060",
+      "source": "seoul_1988",
+      "target": "south_korea",
+      "relation_type": "OCCURRED_IN",
+      "evidence_contains": [
+        "occurred in the Republic of Korea"
+      ],
+      "observations": [
+        {
+          "document": "doc_olympics",
+          "sentence": "The Seoul 1988 Olympic Games occurred in the Republic of Korea.",
+          "evidence_contains": "occurred in the Republic of Korea"
+        }
+      ]
+    },
+    {
+      "id": "rel_061",
+      "source": "taekwondo",
+      "target": "sydney_2000",
+      "relation_type": "PRESENTED_AT",
+      "evidence_contains": [
+        "presented as an official medal sport"
+      ],
+      "observations": [
+        {
+          "document": "doc_olympics",
+          "sentence": "Taekwondo was presented as an official medal sport at the Sydney 2000 Olympic Games.",
+          "evidence_contains": "presented as an official medal sport"
+        }
+      ]
+    },
+    {
+      "id": "rel_062",
+      "source": "sydney_2000",
+      "target": "australia",
+      "relation_type": "OCCURRED_IN",
+      "evidence_contains": [
+        "occurred in Australia"
+      ],
+      "observations": [
+        {
+          "document": "doc_olympics",
+          "sentence": "The Sydney 2000 Olympic Games occurred in Australia.",
+          "evidence_contains": "occurred in Australia"
+        }
+      ]
+    },
+    {
+      "id": "rel_064",
+      "source": "boxing",
+      "target": "st_louis_1904",
+      "relation_type": "PRESENTED_AT",
+      "evidence_contains": [
+        "presented as an Olympic sport"
+      ],
+      "observations": [
+        {
+          "document": "doc_olympics",
+          "sentence": "Boxing was presented as an Olympic sport at the St. Louis 1904 Olympic Games.",
+          "evidence_contains": "presented as an Olympic sport"
+        }
+      ]
+    },
+    {
+      "id": "rel_065",
+      "source": "st_louis_1904",
+      "target": "united_states",
+      "relation_type": "OCCURRED_IN",
+      "evidence_contains": [
+        "occurred in the United States"
+      ],
+      "observations": [
+        {
+          "document": "doc_olympics",
+          "sentence": "The St. Louis 1904 Olympic Games occurred in the United States.",
+          "evidence_contains": "occurred in the United States"
+        }
+      ]
+    },
+    {
+      "id": "rel_066",
+      "source": "taekkyeon",
+      "target": "south_korea",
+      "relation_type": "PRACTICED_IN",
+      "evidence_contains": [
+        "practiced in the Republic of Korea"
+      ],
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "Taekkyeon is practiced in the Republic of Korea as a transmitted community art and daily activity.",
+          "evidence_contains": "practiced in the Republic of Korea"
+        }
+      ]
+    },
+    {
+      "id": "rel_067",
+      "source": "taekkyeon",
+      "target": "kicking",
+      "relation_type": "USES_TECHNIQUE",
+      "evidence_contains": [
+        "uses kicking"
+      ],
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "Taekkyeon uses kicking within fluid rhythms that also support trips, evasions, and changes of level.",
+          "evidence_contains": "uses kicking"
+        }
+      ]
+    },
+    {
+      "id": "rel_068",
+      "source": "taekkyeon",
+      "target": "unesco",
+      "relation_type": "RECOGNIZED_BY",
+      "evidence_contains": [
+        "recognized by UNESCO"
+      ],
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "Taekkyeon was recognized by UNESCO through inscription on the Representative List in 2011.",
+          "evidence_contains": "recognized by UNESCO"
+        }
+      ]
+    },
+    {
+      "id": "rel_069",
+      "source": "ssireum",
+      "target": "south_korea",
+      "relation_type": "PRACTICED_IN",
+      "evidence_contains": [
+        "practiced in the Republic of Korea"
+      ],
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "Ssireum is practiced in the Republic of Korea at festivals, community contests, and organized sporting events.",
+          "evidence_contains": "practiced in the Republic of Korea"
+        }
+      ]
+    },
+    {
+      "id": "rel_070",
+      "source": "ssireum",
+      "target": "wrestling",
+      "relation_type": "USES_TECHNIQUE",
+      "evidence_contains": [
+        "uses wrestling"
+      ],
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "Ssireum uses wrestling from a belt grip to unbalance and bring an opponent to the ground.",
+          "evidence_contains": "uses wrestling"
+        }
+      ]
+    },
+    {
+      "id": "rel_071",
+      "source": "ssireum",
+      "target": "unesco",
+      "relation_type": "RECOGNIZED_BY",
+      "evidence_contains": [
+        "recognized by UNESCO"
+      ],
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "Ssireum was recognized by UNESCO through a joint Korean inscription on the Representative List in 2018.",
+          "evidence_contains": "recognized by UNESCO"
+        }
+      ]
+    },
+    {
+      "id": "rel_072",
+      "source": "pencak_silat",
+      "target": "indonesia",
+      "relation_type": "PRACTICED_IN",
+      "evidence_contains": [
+        "practiced in Indonesia"
+      ],
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "Pencak Silat is practiced in Indonesia through varied regional schools, performances, and community traditions.",
+          "evidence_contains": "practiced in Indonesia"
+        }
+      ]
+    },
+    {
+      "id": "rel_073",
+      "source": "pencak_silat",
+      "target": "striking",
+      "relation_type": "USES_TECHNIQUE",
+      "evidence_contains": [
+        "uses striking"
+      ],
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "Pencak Silat uses striking within broader systems that may also include grappling, weapons, and artistic presentation.",
+          "evidence_contains": "uses striking"
+        }
+      ]
+    },
+    {
+      "id": "rel_074",
+      "source": "pencak_silat",
+      "target": "unesco",
+      "relation_type": "RECOGNIZED_BY",
+      "evidence_contains": [
+        "recognized by UNESCO"
+      ],
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "The traditions of Pencak Silat were recognized by UNESCO through inscription on the Representative List in 2019.",
+          "evidence_contains": "recognized by UNESCO"
+        }
+      ]
+    },
+    {
+      "id": "rel_075",
+      "source": "capoeira",
+      "target": "brazil",
+      "relation_type": "PRACTICED_IN",
+      "evidence_contains": [
+        "practiced in Brazil"
+      ],
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "Capoeira is practiced in Brazil as a fight, game, dance, musical gathering, and social tradition.",
+          "evidence_contains": "practiced in Brazil"
+        }
+      ]
+    },
+    {
+      "id": "rel_076",
+      "source": "capoeira",
+      "target": "roda",
+      "relation_type": "HAS_PRACTICE",
+      "evidence_contains": [
+        "includes the roda"
+      ],
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "Capoeira includes the roda as the circle where players exchange movements within music and ritual.",
+          "evidence_contains": "includes the roda"
+        }
+      ]
+    },
+    {
+      "id": "rel_077",
+      "source": "capoeira",
+      "target": "kicking",
+      "relation_type": "USES_TECHNIQUE",
+      "evidence_contains": [
+        "uses kicking"
+      ],
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Capoeira uses kicking within an evasive movement vocabulary shaped by timing and dialogue between players.",
+          "evidence_contains": "uses kicking"
+        }
+      ]
+    },
+    {
+      "id": "rel_078",
+      "source": "capoeira",
+      "target": "mestre_bimba",
+      "relation_type": "POPULARIZED_BY",
+      "evidence_contains": [
+        "popularized by Mestre Bimba"
+      ],
+      "observations": [
+        {
+          "document": "doc_lineages",
+          "sentence": "Capoeira was popularized by Mestre Bimba through public teaching and a structured regional approach in the twentieth century.",
+          "evidence_contains": "popularized by Mestre Bimba"
+        }
+      ]
+    },
+    {
+      "id": "rel_079",
+      "source": "roda",
+      "target": "unesco",
+      "relation_type": "RECOGNIZED_BY",
+      "evidence_contains": [
+        "recognized by UNESCO"
+      ],
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "The capoeira roda was recognized by UNESCO through inscription on the Representative List in 2014.",
+          "evidence_contains": "recognized by UNESCO"
+        }
+      ]
+    },
+    {
+      "id": "rel_080",
+      "source": "boxing",
+      "target": "england",
+      "relation_type": "ORIGINATED_IN",
+      "evidence_contains": [
+        "originated in England"
+      ],
+      "observations": [
+        {
+          "document": "doc_timeline",
+          "sentence": "Modern boxing originated in England through eighteenth- and nineteenth-century changes in rules, equipment, and promotion.",
+          "evidence_contains": "originated in England"
+        }
+      ]
+    },
+    {
+      "id": "rel_081",
+      "source": "boxing",
+      "target": "punching",
+      "relation_type": "USES_TECHNIQUE",
+      "evidence_contains": [
+        "uses punching"
+      ],
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Boxing uses punching as its permitted offensive technique in modern competition.",
+          "evidence_contains": "uses punching"
+        }
+      ]
+    },
+    {
+      "id": "rel_082",
+      "source": "boxing",
+      "target": "queensberry_rules",
+      "relation_type": "DOCUMENTED_IN",
+      "evidence_contains": [
+        "documented in the Marquess of Queensberry Rules"
+      ],
+      "observations": [
+        {
+          "document": "doc_rules",
+          "sentence": "A major stage in modern boxing was documented in the Marquess of Queensberry Rules published in 1867.",
+          "evidence_contains": "documented in the Marquess of Queensberry Rules"
+        }
+      ]
+    },
+    {
+      "id": "rel_083",
+      "source": "queensberry_rules",
+      "target": "john_graham_chambers",
+      "relation_type": "AUTHORED_BY",
+      "evidence_contains": [
+        "authored by John Graham Chambers"
+      ],
+      "observations": [
+        {
+          "document": "doc_rules",
+          "sentence": "The Marquess of Queensberry Rules were authored by John Graham Chambers and issued under aristocratic patronage.",
+          "evidence_contains": "authored by John Graham Chambers"
+        }
+      ]
+    },
+    {
+      "id": "rel_084",
+      "source": "savate",
+      "target": "france",
+      "relation_type": "ORIGINATED_IN",
+      "evidence_contains": [
+        "originated in France"
+      ],
+      "observations": [
+        {
+          "document": "doc_timeline",
+          "sentence": "Savate originated in France as teachers organized several urban kicking and fighting practices.",
+          "evidence_contains": "originated in France"
+        }
+      ]
+    },
+    {
+      "id": "rel_085",
+      "source": "savate",
+      "target": "kicking",
+      "relation_type": "USES_TECHNIQUE",
+      "evidence_contains": [
+        "uses kicking"
+      ],
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Savate uses kicking with shoes as a defining part of its technical and competitive vocabulary.",
+          "evidence_contains": "uses kicking"
+        }
+      ]
+    },
+    {
+      "id": "rel_086",
+      "source": "savate",
+      "target": "boxing",
+      "relation_type": "INFLUENCED_BY",
+      "required": false,
+      "evidence_contains": [
+        "influenced by English boxing"
+      ],
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "Savate was influenced by English boxing when teachers combined refined punching with established French kicks.",
+          "evidence_contains": "influenced by English boxing"
+        }
+      ]
+    },
+    {
+      "id": "rel_087",
+      "source": "savate",
+      "target": "joseph_charlemont",
+      "relation_type": "POPULARIZED_BY",
+      "evidence_contains": [
+        "popularized by Joseph Charlemont"
+      ],
+      "observations": [
+        {
+          "document": "doc_lineages",
+          "sentence": "Savate was popularized by Joseph Charlemont through teaching, writing, and organized public practice.",
+          "evidence_contains": "popularized by Joseph Charlemont"
+        }
+      ]
+    },
+    {
+      "id": "rel_088",
+      "source": "savate",
+      "target": "french_savate_federation",
+      "relation_type": "GOVERNED_BY",
+      "evidence_contains": [
+        "governed by the French Savate Federation"
+      ],
+      "observations": [
+        {
+          "document": "doc_rules",
+          "sentence": "National competitive savate in France is governed by the French Savate Federation.",
+          "evidence_contains": "governed by the French Savate Federation"
+        }
+      ]
+    },
+    {
+      "id": "rel_089",
+      "source": "savate",
+      "target": "punching",
+      "relation_type": "USES_TECHNIQUE",
+      "evidence_contains": [
+        "uses punching"
+      ],
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Savate uses punching together with its characteristic repertoire of kicks.",
+          "evidence_contains": "uses punching"
+        }
+      ]
+    },
+    {
+      "id": "rel_090",
+      "source": "boxing",
+      "target": "sparring",
+      "relation_type": "HAS_PRACTICE",
+      "evidence_contains": [
+        "includes sparring"
+      ],
+      "observations": [
+        {
+          "document": "doc_interview",
+          "sentence": "Boxing includes sparring as supervised practice for timing, defense, distance, and controlled application.",
+          "evidence_contains": "includes sparring"
+        }
+      ]
+    },
+    {
+      "id": "rel_091",
+      "source": "savate",
+      "target": "sparring",
+      "relation_type": "HAS_PRACTICE",
+      "evidence_contains": [
+        "includes sparring"
+      ],
+      "observations": [
+        {
+          "document": "doc_interview",
+          "sentence": "Savate includes sparring in forms that range from controlled technical exchange to full-contact competition.",
+          "evidence_contains": "includes sparring"
+        }
+      ]
+    },
+    {
+      "id": "rel_092",
+      "source": "jeet_kune_do",
+      "target": "bruce_lee",
+      "relation_type": "DEVELOPED_BY",
+      "evidence_contains": [
+        "Bruce Lee developed Jeet Kune Do"
+      ],
+      "observations": [
+        {
+          "document": "doc_lineages",
+          "sentence": "Bruce Lee developed Jeet Kune Do as an evolving approach rather than a fixed catalogue of techniques.",
+          "evidence_contains": "Bruce Lee developed Jeet Kune Do"
+        }
+      ]
+    },
+    {
+      "id": "rel_093",
+      "source": "jeet_kune_do",
+      "target": "wing_chun",
+      "relation_type": "INFLUENCED_BY",
+      "evidence_contains": [
+        "influenced by Wing Chun"
+      ],
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "Jeet Kune Do was influenced by Wing Chun, one of the arts Bruce Lee studied during his youth.",
+          "evidence_contains": "influenced by Wing Chun"
+        }
+      ]
+    },
+    {
+      "id": "rel_094",
+      "source": "jeet_kune_do",
+      "target": "boxing",
+      "relation_type": "INFLUENCED_BY",
+      "evidence_contains": [
+        "influenced by boxing"
+      ],
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "Jeet Kune Do was influenced by boxing in its mobile footwork, direct punching, and attention to live timing.",
+          "evidence_contains": "influenced by boxing"
+        }
+      ]
+    },
+    {
+      "id": "rel_095",
+      "source": "jeet_kune_do",
+      "target": "adaptability",
+      "relation_type": "EMPHASIZES",
+      "evidence_contains": [
+        "emphasizes adaptability"
+      ],
+      "observations": [
+        {
+          "document": "doc_interview",
+          "sentence": "Jeet Kune Do emphasizes adaptability instead of requiring every practitioner to preserve one rigid form.",
+          "evidence_contains": "emphasizes adaptability"
+        }
+      ]
+    },
+    {
+      "id": "rel_096",
+      "source": "bruce_lee",
+      "target": "long_beach_1964",
+      "relation_type": "PRESENTED_AT",
+      "evidence_contains": [
+        "presented at the 1964 Long Beach"
+      ],
+      "observations": [
+        {
+          "document": "doc_timeline",
+          "sentence": "Bruce Lee presented at the 1964 Long Beach International Karate Championships during a public demonstration programme.",
+          "evidence_contains": "presented at the 1964 Long Beach"
+        }
+      ]
+    },
+    {
+      "id": "rel_097",
+      "source": "long_beach_1964",
+      "target": "long_beach",
+      "relation_type": "OCCURRED_IN",
+      "evidence_contains": [
+        "occurred in Long Beach"
+      ],
+      "observations": [
+        {
+          "document": "doc_timeline",
+          "sentence": "The 1964 Long Beach International Karate Championships occurred in Long Beach.",
+          "evidence_contains": "occurred in Long Beach"
+        }
+      ]
+    },
+    {
+      "id": "rel_098",
+      "source": "wing_chun",
+      "target": "hong_kong",
+      "relation_type": "PRACTICED_IN",
+      "evidence_contains": [
+        "practiced in Hong Kong"
+      ],
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "Wing Chun was practiced in Hong Kong in the community where Bruce Lee began his formal martial training.",
+          "evidence_contains": "practiced in Hong Kong"
+        }
+      ]
+    },
+    {
+      "id": "rel_099",
+      "source": "muay_thai",
+      "target": "thailand",
+      "relation_type": "PRACTICED_IN",
+      "evidence_contains": [
+        "practiced in Thailand"
+      ],
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "Muay Thai is practiced in Thailand as a regulated combat sport with deep local histories.",
+          "evidence_contains": "practiced in Thailand"
+        }
+      ]
+    },
+    {
+      "id": "rel_100",
+      "source": "muay_thai",
+      "target": "striking",
+      "relation_type": "USES_TECHNIQUE",
+      "evidence_contains": [
+        "uses striking"
+      ],
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Muay Thai uses striking with fists, elbows, knees, and shins under its sporting rules.",
+          "evidence_contains": "uses striking"
+        }
+      ]
+    },
+    {
+      "id": "rel_101",
+      "source": "mitsuyo_maeda",
+      "target": "brazil",
+      "relation_type": "TAUGHT_AT",
+      "required": false,
+      "evidence_contains": [
+        "In Brazil he became one important teacher"
+      ],
+      "observations": [
+        {
+          "document": "doc_lineages",
+          "sentence": "In Brazil he became one important teacher within a larger environment of migrants, performers, fighters, and local students.",
+          "evidence_contains": "In Brazil he became one important teacher"
+        }
+      ]
+    },
+    {
+      "id": "rel_102",
+      "source": "mixed_martial_arts",
+      "target": "punching",
+      "relation_type": "USES_TECHNIQUE",
+      "required": false,
+      "evidence_contains": [
+        "in punching mechanics"
+      ],
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "Mixed Martial Arts was influenced by boxing in punching mechanics, footwork, defense, and timed rounds.",
+          "evidence_contains": "in punching mechanics"
+        }
+      ]
+    },
+    {
+      "id": "rel_103",
+      "source": "savate",
+      "target": "france",
+      "relation_type": "PRACTICED_IN",
+      "required": false,
+      "evidence_contains": [
+        "savate in France"
+      ],
+      "observations": [
+        {
+          "document": "doc_rules",
+          "sentence": "National competitive savate in France is governed by the French Savate Federation.",
+          "evidence_contains": "savate in France"
+        }
+      ]
+    },
+    {
+      "id": "rel_104",
+      "source": "tokyo_1964",
+      "target": "tokyo",
+      "relation_type": "LOCATED_IN",
+      "required": false,
+      "evidence_contains": [
+        "event node is located in Tokyo"
+      ],
+      "observations": [
+        {
+          "document": "doc_olympics",
+          "sentence": "The event node is located in Tokyo, while the art is separately linked to the event.",
+          "evidence_contains": "event node is located in Tokyo"
+        }
+      ]
+    },
+    {
+      "id": "rel_105",
+      "source": "kodokan",
+      "target": "tokyo",
+      "relation_type": "ORIGINATED_IN",
+      "required": false,
+      "evidence_contains": [
+        "founded the Kodokan in Tokyo"
+      ],
+      "observations": [
+        {
+          "document": "doc_smoke",
+          "sentence": "Jigoro Kano founded the Kodokan in Tokyo in 1882.",
+          "evidence_contains": "founded the Kodokan in Tokyo"
+        }
+      ]
+    },
+    {
+      "id": "rel_106",
+      "source": "mixed_martial_arts",
+      "target": "ent_technique_clinch",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "Its Thai sporting context remains distinct even when MMA athletes borrow clinch and striking methods.",
+          "evidence_contains": "Its Thai sporting context remains distinct even when MMA athletes borrow clinch and striking methods."
+        },
+        {
+          "document": "doc_crossroads",
+          "sentence": "Mixed Martial Arts was influenced by Muay Thai in its use of standing strikes and clinch tactics.",
+          "evidence_contains": "Mixed Martial Arts was influenced by Muay Thai in its use of standing strikes and clinch tactics."
+        }
+      ]
+    },
+    {
+      "id": "rel_107",
+      "source": "judo",
+      "target": "ent_technique_balance_breaking",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Judo offers a clear example of selection. Its standing exchanges reward balance breaking and controlled\nprojection, while its ground phase permits a narrower range of holds and submissions.",
+          "evidence_contains": "Judo offers a clear example of selection. Its standing exchanges reward balance breaking and controlled\nprojection, while its ground phase permits a narrower range of holds and submissions."
+        }
+      ]
+    },
+    {
+      "id": "rel_108",
+      "source": "judo",
+      "target": "ent_practice_kyu",
+      "relation_type": "HAS_PRACTICE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_schools",
+          "sentence": "Judo uses belt ranking to mark stages within its kyu and dan progression.",
+          "evidence_contains": "Judo uses belt ranking to mark stages within its kyu and dan progression."
+        },
+        {
+          "document": "doc_schools",
+          "sentence": "In judo, kyu and dan categories supplied a repeatable organizational structure that other modern arts later adapted in their own ways.",
+          "evidence_contains": "In judo, kyu and dan categories supplied a repeatable organizational structure that other modern arts later adapted in their own ways."
+        }
+      ]
+    },
+    {
+      "id": "rel_109",
+      "source": "tokyo_2020",
+      "target": "ent_time_period_2021",
+      "relation_type": "OCCURRED_IN",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_olympics",
+          "sentence": "The postponed Tokyo 2020 Olympic Games occurred in Tokyo in 2021 while retaining the Tokyo 2020 name.",
+          "evidence_contains": "The postponed Tokyo 2020 Olympic Games occurred in Tokyo in 2021 while retaining the Tokyo 2020 name."
+        }
+      ]
+    },
+    {
+      "id": "rel_110",
+      "source": "ssireum",
+      "target": "ent_technique_belt_grip",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "Ssireum uses wrestling from a belt grip to unbalance and bring an opponent to the ground.",
+          "evidence_contains": "Ssireum uses wrestling from a belt grip to unbalance and bring an opponent to the ground."
+        },
+        {
+          "document": "doc_heritage",
+          "sentence": "Ssireum begins from a distinctive belt grip and seeks to bring an opponent to the ground.",
+          "evidence_contains": "Ssireum begins from a distinctive belt grip and seeks to bring an opponent to the ground."
+        }
+      ]
+    },
+    {
+      "id": "rel_111",
+      "source": "mixed_martial_arts",
+      "target": "ent_technique_grappling",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Mixed martial arts places grappling decisions beside striking decisions.",
+          "evidence_contains": "Mixed martial arts places grappling decisions beside striking decisions."
+        }
+      ]
+    },
+    {
+      "id": "rel_112",
+      "source": "taekkyeon",
+      "target": "ent_work_representative_list",
+      "relation_type": "DOCUMENTED_IN",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "Taekkyeon was recognized by UNESCO through inscription on the Representative List in 2011.",
+          "evidence_contains": "Taekkyeon was recognized by UNESCO through inscription on the Representative List in 2011."
+        }
+      ]
+    },
+    {
+      "id": "rel_113",
+      "source": "pencak_silat",
+      "target": "ent_work_representative_list",
+      "relation_type": "DOCUMENTED_IN",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "The traditions of Pencak Silat were recognized by UNESCO through inscription on the Representative List in 2019.",
+          "evidence_contains": "The traditions of Pencak Silat were recognized by UNESCO through inscription on the Representative List in 2019."
+        }
+      ]
+    },
+    {
+      "id": "rel_114",
+      "source": "judo",
+      "target": "ent_time_period_late_nineteenth_century",
+      "relation_type": "ORIGINATED_IN",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_timeline",
+          "sentence": "Judo originated in Japan during the institutional changes of the late nineteenth century.",
+          "evidence_contains": "Judo originated in Japan during the institutional changes of the late nineteenth century."
+        }
+      ]
+    },
+    {
+      "id": "rel_115",
+      "source": "seoul_1988",
+      "target": "sydney_2000",
+      "relation_type": "PRECEDED",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_olympics",
+          "sentence": "At Sydney 2000, taekwondo appeared as an official medal sport. The later event followed the Seoul demonstration by twelve years and represented a different programme status.",
+          "evidence_contains": "At Sydney 2000, taekwondo appeared as an official medal sport. The later event followed the Seoul demonstration by twelve years and represented a different programme status."
+        },
+        {
+          "document": "doc_olympics",
+          "sentence": "The Seoul 1988 demonstration preceded taekwondo's medal programme at Sydney 2000.",
+          "evidence_contains": "The Seoul 1988 demonstration preceded taekwondo's medal programme at Sydney 2000."
+        }
+      ]
+    },
+    {
+      "id": "rel_116",
+      "source": "judo",
+      "target": "joint_locks",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Judo uses ground fighting for pins, controlled locks, and carefully limited strangling techniques.",
+          "evidence_contains": "Judo uses ground fighting for pins, controlled locks, and carefully limited strangling techniques."
+        }
+      ]
+    },
+    {
+      "id": "rel_117",
+      "source": "ssireum",
+      "target": "ent_work_representative_list",
+      "relation_type": "DOCUMENTED_IN",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "Ssireum was recognized by UNESCO through a joint Korean inscription on the Representative List in 2018.",
+          "evidence_contains": "Ssireum was recognized by UNESCO through a joint Korean inscription on the Representative List in 2018."
+        }
+      ]
+    },
+    {
+      "id": "rel_118",
+      "source": "muay_thai",
+      "target": "ent_technique_clinch",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Muay Thai permits additional striking surfaces and a distinctive\nclinch, so a familiar word such as striking covers a wider legal range than it does in boxing.",
+          "evidence_contains": "Muay Thai permits additional striking surfaces and a distinctive\nclinch, so a familiar word such as striking covers a wider legal range than it does in boxing."
+        }
+      ]
+    },
+    {
+      "id": "rel_119",
+      "source": "sydney_2000",
+      "target": "seoul_1988",
+      "relation_type": "SUCCEEDED",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_olympics",
+          "sentence": "At Sydney 2000, taekwondo appeared as an official medal sport. The later event followed the Seoul demonstration by twelve years and represented a different programme status.",
+          "evidence_contains": "At Sydney 2000, taekwondo appeared as an official medal sport. The later event followed the Seoul demonstration by twelve years and represented a different programme status."
+        }
+      ]
+    },
+    {
+      "id": "rel_120",
+      "source": "taekkyeon",
+      "target": "ent_technique_trips",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "Taekkyeon combines fluid stepping with attacks, evasions, and trips.",
+          "evidence_contains": "Taekkyeon combines fluid stepping with attacks, evasions, and trips."
+        }
+      ]
+    },
+    {
+      "id": "rel_121",
+      "source": "judo",
+      "target": "ent_technique_holds",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Judo offers a clear example of selection. Its standing exchanges reward balance breaking and controlled\nprojection, while its ground phase permits a narrower range of holds and submissions.",
+          "evidence_contains": "Judo offers a clear example of selection. Its standing exchanges reward balance breaking and controlled\nprojection, while its ground phase permits a narrower range of holds and submissions."
+        }
+      ]
+    },
+    {
+      "id": "rel_122",
+      "source": "judo",
+      "target": "ent_technique_pins",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Judo uses ground fighting for pins, controlled locks, and carefully limited strangling techniques.",
+          "evidence_contains": "Judo uses ground fighting for pins, controlled locks, and carefully limited strangling techniques."
+        }
+      ]
+    },
+    {
+      "id": "rel_123",
+      "source": "brazilian_jiu_jitsu",
+      "target": "ent_technique_submission_techniques",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_interview",
+          "sentence": "Brazilian Jiu-Jitsu uses joint locks as submission techniques within training and competition rules.",
+          "evidence_contains": "Brazilian Jiu-Jitsu uses joint locks as submission techniques within training and competition rules."
+        },
+        {
+          "document": "doc_interview",
+          "sentence": "Brazilian Jiu-Jitsu uses joint locks as submission techniques within training and competition rules.",
+          "evidence_contains": "Brazilian Jiu-Jitsu uses joint locks as submission techniques within training and competition rules."
+        }
+      ]
+    },
+    {
+      "id": "rel_124",
+      "source": "judo",
+      "target": "ent_technique_submissions",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Judo offers a clear example of selection. Its standing exchanges reward balance breaking and controlled\nprojection, while its ground phase permits a narrower range of holds and submissions.",
+          "evidence_contains": "Judo offers a clear example of selection. Its standing exchanges reward balance breaking and controlled\nprojection, while its ground phase permits a narrower range of holds and submissions."
+        }
+      ]
+    },
+    {
+      "id": "rel_125",
+      "source": "ufc_1",
+      "target": "ent_time_period_1993",
+      "relation_type": "OCCURRED_IN",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_timeline",
+          "sentence": "UFC 1 was part of the Ultimate Fighting Championship's first tournament presentation in 1993.",
+          "evidence_contains": "UFC 1 was part of the Ultimate Fighting Championship's first tournament presentation in 1993."
+        }
+      ]
+    },
+    {
+      "id": "rel_126",
+      "source": "kodokan",
+      "target": "ent_time_period_1882",
+      "relation_type": "ORIGINATED_IN",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_schools",
+          "sentence": "Jigoro Kano founded the Kodokan in Tokyo in 1882 as the institutional home of his educational project.",
+          "evidence_contains": "Jigoro Kano founded the Kodokan in Tokyo in 1882 as the institutional home of his educational project."
+        },
+        {
+          "document": "doc_smoke",
+          "sentence": "Jigoro Kano founded the Kodokan in Tokyo in 1882.",
+          "evidence_contains": "Jigoro Kano founded the Kodokan in Tokyo in 1882."
+        }
+      ]
+    },
+    {
+      "id": "rel_127",
+      "source": "karate",
+      "target": "okinawa",
+      "relation_type": "PRACTICED_IN",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_lineages",
+          "sentence": "Karate took shape in Okinawa amid local practice, political change, and contact through regional\nexchange.",
+          "evidence_contains": "Karate took shape in Okinawa amid local practice, political change, and contact through regional\nexchange."
+        }
+      ]
+    },
+    {
+      "id": "rel_128",
+      "source": "mixed_martial_arts",
+      "target": "ent_technique_submissions",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "This relation also creates a bridge forward to MMA, where ground control and submissions became publicly visible in a new ruleset.",
+          "evidence_contains": "This relation also creates a bridge forward to MMA, where ground control and submissions became publicly visible in a new ruleset."
+        }
+      ]
+    },
+    {
+      "id": "rel_129",
+      "source": "mixed_martial_arts",
+      "target": "ent_technique_takedown",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Mixed Martial Arts uses wrestling for takedowns, balance control, and decisions about where a bout\ncontinues.",
+          "evidence_contains": "Mixed Martial Arts uses wrestling for takedowns, balance control, and decisions about where a bout\ncontinues."
+        },
+        {
+          "document": "doc_smoke",
+          "sentence": "Mixed Martial Arts uses wrestling for takedowns and positional control.",
+          "evidence_contains": "Mixed Martial Arts uses wrestling for takedowns and positional control."
+        }
+      ]
+    },
+    {
+      "id": "rel_130",
+      "source": "mixed_martial_arts",
+      "target": "ent_technique_clinch_tactics",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "Mixed Martial Arts was influenced by Muay Thai in its use of standing strikes and clinch tactics.",
+          "evidence_contains": "Mixed Martial Arts was influenced by Muay Thai in its use of standing strikes and clinch tactics."
+        }
+      ]
+    },
+    {
+      "id": "rel_131",
+      "source": "muay_thai",
+      "target": "ent_technique_clinch_tactics",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Muay Thai permits additional striking surfaces and a distinctive\nclinch, so a familiar word such as striking covers a wider legal range than it does in boxing.",
+          "evidence_contains": "Muay Thai permits additional striking surfaces and a distinctive\nclinch"
+        },
+        {
+          "document": "doc_crossroads",
+          "sentence": "Mixed Martial Arts was influenced by Muay Thai in its use of standing strikes and clinch tactics.",
+          "evidence_contains": "Mixed Martial Arts was influenced by Muay Thai in its use of standing strikes and clinch tactics."
+        }
+      ]
+    },
+    {
+      "id": "rel_132",
+      "source": "roda",
+      "target": "ent_work_representative_list",
+      "relation_type": "DOCUMENTED_IN",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "The capoeira roda was recognized by UNESCO through inscription on the Representative List in 2014.",
+          "evidence_contains": "inscription on the Representative List"
+        }
+      ]
+    },
+    {
+      "id": "rel_133",
+      "source": "taekkyeon",
+      "target": "ent_technique_evasions",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "Taekkyeon combines fluid stepping with attacks, evasions, and trips.",
+          "evidence_contains": "combines fluid stepping with attacks, evasions"
+        }
+      ]
+    },
+    {
+      "id": "rel_134",
+      "source": "jeet_kune_do",
+      "target": "ent_technique_footwork",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "Jeet Kune Do was influenced by boxing in its mobile footwork, direct punching, and attention to live timing.",
+          "evidence_contains": "its mobile footwork"
+        }
+      ]
+    },
+    {
+      "id": "rel_135",
+      "source": "jeet_kune_do",
+      "target": "punching",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "Jeet Kune Do was influenced by boxing in its mobile footwork, direct punching, and attention to live timing.",
+          "evidence_contains": "direct punching"
+        }
+      ]
+    },
+    {
+      "id": "rel_136",
+      "source": "mixed_martial_arts",
+      "target": "ent_technique_footwork",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "Mixed Martial Arts was influenced by boxing in punching mechanics, footwork, defense, and timed rounds.",
+          "evidence_contains": "punching mechanics, footwork"
+        }
+      ]
+    },
+    {
+      "id": "rel_137",
+      "source": "judo",
+      "target": "ent_technique_strangling_techniques",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Judo uses ground fighting for pins, controlled locks, and carefully limited strangling techniques.",
+          "evidence_contains": "carefully limited strangling techniques"
+        }
+      ]
+    },
+    {
+      "id": "rel_138",
+      "source": "boxing",
+      "target": "ent_time_period_nineteenth_century",
+      "relation_type": "ORIGINATED_IN",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_timeline",
+          "sentence": "Modern boxing originated in England through eighteenth- and nineteenth-century changes in rules, equipment, and promotion.",
+          "evidence_contains": "Modern boxing originated in England through eighteenth- and nineteenth-century changes"
+        }
+      ]
+    },
+    {
+      "id": "rel_139",
+      "source": "brazilian_jiu_jitsu",
+      "target": "ent_technique_positional_control",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Brazilian Jiu-Jitsu uses ground fighting as a central arena for positional control and escape.",
+          "evidence_contains": "Brazilian Jiu-Jitsu uses ground fighting as a central arena for positional control and escape."
+        }
+      ]
+    },
+    {
+      "id": "rel_140",
+      "source": "karate",
+      "target": "ent_technique_hand_strikes",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Karate places kicks beside hand strikes in forms, drills, and bouts.",
+          "evidence_contains": "Karate places kicks beside hand strikes in forms, drills, and bouts."
+        }
+      ]
+    },
+    {
+      "id": "rel_141",
+      "source": "ent_practice_electronic_scoring",
+      "target": "world_taekwondo",
+      "relation_type": "GOVERNED_BY",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_rules",
+          "sentence": "World Taekwondo defines electronic scoring, protective equipment, legal target areas, and match procedure for its discipline.",
+          "evidence_contains": "World Taekwondo defines electronic scoring, protective equipment, legal target areas, and match procedure for its discipline."
+        }
+      ]
+    },
+    {
+      "id": "rel_142",
+      "source": "karate",
+      "target": "ent_practice_partner_drills",
+      "relation_type": "HAS_PRACTICE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_overview",
+          "sentence": "Karate uses kicking within solo forms, partner drills, and controlled competition.",
+          "evidence_contains": "Karate uses kicking within solo forms, partner drills, and controlled competition."
+        }
+      ]
+    },
+    {
+      "id": "rel_143",
+      "source": "mixed_martial_arts",
+      "target": "ent_practice_timed_rounds",
+      "relation_type": "HAS_PRACTICE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "Mixed Martial Arts was influenced by boxing in punching mechanics, footwork, defense, and timed rounds.",
+          "evidence_contains": "Mixed Martial Arts was influenced by boxing in punching mechanics, footwork, defense, and timed rounds."
+        }
+      ]
+    },
+    {
+      "id": "rel_144",
+      "source": "mixed_martial_arts",
+      "target": "ent_technique_standing_strikes",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_crossroads",
+          "sentence": "Mixed Martial Arts was influenced by Muay Thai in its use of standing strikes and clinch tactics.",
+          "evidence_contains": "Mixed Martial Arts was influenced by Muay Thai in its use of standing strikes and clinch tactics."
+        }
+      ]
+    },
+    {
+      "id": "rel_145",
+      "source": "kata",
+      "target": "world_karate_federation",
+      "relation_type": "GOVERNED_BY",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_rules",
+          "sentence": "The World Karate Federation defines areas, scoring, penalties, kata procedures, and event administration for its circuit.",
+          "evidence_contains": "The World Karate Federation defines areas, scoring, penalties, kata procedures, and event administration for its circuit."
+        }
+      ]
+    },
+    {
+      "id": "rel_146",
+      "source": "mixed_martial_arts",
+      "target": "ent_technique_positional_control",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_smoke",
+          "sentence": "Mixed Martial Arts uses wrestling for takedowns and positional control.",
+          "evidence_contains": "Mixed Martial Arts uses wrestling for takedowns and positional control."
+        }
+      ]
+    },
+    {
+      "id": "rel_147",
+      "source": "taekkyeon",
+      "target": "ent_technique_changes_of_level",
+      "relation_type": "USES_TECHNIQUE",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_heritage",
+          "sentence": "Taekkyeon uses kicking within fluid rhythms that also support trips, evasions, and changes of level.",
+          "evidence_contains": "Taekkyeon uses kicking within fluid rhythms that also support trips, evasions, and changes of level."
+        }
+      ]
+    },
+    {
+      "id": "rel_148",
+      "source": "ent_martial_art_professional_mma",
+      "target": "united_states",
+      "relation_type": "PRACTICED_IN",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_rules",
+          "sentence": "Professional MMA in the United States is regulated through state and tribal authorities rather than one national license.",
+          "evidence_contains": "Professional MMA in the United States is regulated through state and tribal authorities rather than one national license."
+        }
+      ]
+    },
+    {
+      "id": "rel_149",
+      "source": "ent_martial_art_professional_mma",
+      "target": "unified_rules_mma",
+      "relation_type": "DOCUMENTED_IN",
+      "required": true,
+      "observations": [
+        {
+          "document": "doc_rules",
+          "sentence": "Modern professional Mixed Martial Arts is documented in the Unified Rules of Mixed Martial Arts.",
+          "evidence_contains": "Modern professional Mixed Martial Arts is documented in the Unified Rules of Mixed Martial Arts."
+        }
+      ]
+    }
+  ]
+}

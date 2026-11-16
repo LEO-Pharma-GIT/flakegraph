@@ -1,0 +1,126 @@
+{{- if and .Values.modelServing.enabled .Values.modelServing.balancer.enabled }}
+{{- $balancer := .Values.modelServing.balancer }}
+{{- $name := printf "%s-balancer" (include "flakegraph.fullname" .) }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: serving-balancer
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: serving-balancer
+rules:
+  # It reads which engines exist and whether they are ready, and writes one
+  # label on them. Nothing else: reserving a machine is an admission change
+  # the engine's own sidecar enforces, not a change to any workload.
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, watch, list, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: serving-balancer
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: serving-balancer
+spec:
+  # One. Two would fight over the same caps, and the work is a few HTTP calls
+  # every few seconds; the caps it sets lapse on their own if it stops.
+  replicas: 1
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "flakegraph.selectorLabels" (dict "root" . "component" "serving-balancer") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "flakegraph.labels" . | nindent 8 }}
+        app.kubernetes.io/component: serving-balancer
+    spec:
+      serviceAccountName: {{ $name }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: balancer
+          image: {{ include "flakegraph.balancerImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [flakegraph, serving, balancer]
+          env:
+            - name: FLAKEGRAPH_BALANCER_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: FLAKEGRAPH_BALANCER_ENGINE_SELECTOR
+              value: {{ printf "app.kubernetes.io/instance=%s,app.kubernetes.io/component=model-serving" .Release.Name | quote }}
+            - name: FLAKEGRAPH_BALANCER_ENGINE_PORT
+              value: {{ .Values.modelServing.service.port | quote }}
+            - name: FLAKEGRAPH_BALANCER_STANDBY
+              value: {{ $balancer.standby | quote }}
+            - name: FLAKEGRAPH_BALANCER_MAX_RESERVED
+              value: {{ $balancer.maxReserved | quote }}
+            - name: FLAKEGRAPH_BALANCER_COOLDOWN_SECONDS
+              value: {{ $balancer.cooldownSeconds | quote }}
+            - name: FLAKEGRAPH_BALANCER_GROW_AFTER_SECONDS
+              value: {{ $balancer.growAfterSeconds | quote }}
+            - name: FLAKEGRAPH_BALANCER_DECAY_AFTER_SECONDS
+              value: {{ $balancer.decayAfterSeconds | quote }}
+            - name: FLAKEGRAPH_BALANCER_INTERVAL_SECONDS
+              value: {{ $balancer.intervalSeconds | quote }}
+            - name: FLAKEGRAPH_BALANCER_RENEW_BEFORE_SECONDS
+              value: {{ $balancer.renewBeforeSeconds | quote }}
+            - name: FLAKEGRAPH_BALANCER_SERVING_LANE
+              value: {{ $balancer.servingLane | quote }}
+            {{- if include "flakegraph.lanesEnabled" . }}
+            # Work already running beside an engine that cannot be moved: the
+            # standby is reserved on the node with the least of it.
+            {{- $neighbours := list "spark-role=executor" }}
+            {{- if .Values.embeddingServing.enabled }}
+            {{- $neighbours = append $neighbours (printf "app.kubernetes.io/instance=%s,app.kubernetes.io/component=embedding-serving" .Release.Name) }}
+            {{- end }}
+            - name: FLAKEGRAPH_BALANCER_NEIGHBOUR_SELECTORS
+              value: {{ join ";" $neighbours | quote }}
+            {{- if .Values.documentParsing.enabled }}
+            - name: FLAKEGRAPH_BALANCER_OCR_SELECTOR
+              value: {{ printf "app.kubernetes.io/instance=%s,app.kubernetes.io/component=document-parsing" .Release.Name | quote }}
+            {{- end }}
+            {{- end }}
+            # It talks to the sidecars through the same authenticated surface
+            # as inference, with an interactive key: a batch key cannot lift
+            # the cap that is holding batch back.
+            - name: FLAKEGRAPH_BALANCER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.modelServing.sidecar.keySecret.name }}
+                  key: SIDECAR_KEY_INTERACTIVE
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml $balancer.resources | nindent 12 }}
+{{- end }}

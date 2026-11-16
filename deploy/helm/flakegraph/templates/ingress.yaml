@@ -1,0 +1,161 @@
+{{- if .Values.ingress.enabled }}
+{{- $ingress := .Values.ingress }}
+{{- $root := . }}
+{{- /*
+Every routed service is a host under one domain rather than a path under one
+host, because the applications behind them assume they are mounted at the root:
+the console serves /_next and /api, LiteLLM serves /ui and /sso/callback. Rewriting those
+prefixes is a source of breakage that a hostname avoids entirely, and an OIDC
+redirect URI has to be a stable absolute URL in any case.
+
+Hosts are derived from one `domain` so an operator supplies a single name and a
+single certificate. A wildcard certificate covers the lot; without one, list the
+hosts explicitly in `tls.hosts`.
+*/}}
+{{- $routes := list }}
+{{- if .Values.controlPlane.enabled }}
+{{- $routes = append $routes (dict "key" "controlPlane" "name" (include "flakegraph.controlPlaneName" .) "host" $ingress.hosts.controlPlane "port" .Values.controlPlane.service.port) }}
+{{- end }}
+{{- if .Values.gateway.enabled }}
+{{- $routes = append $routes (dict "key" "gateway" "name" (include "flakegraph.gatewayName" .) "host" $ingress.hosts.gateway "port" .Values.gateway.litellm.service.port) }}
+{{- end }}
+{{- if .Values.documentParsing.enabled }}
+{{- $routes = append $routes (dict "key" "ocr" "name" (include "flakegraph.ocrShimName" .) "host" $ingress.hosts.ocr "port" .Values.documentParsing.shim.service.port) }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "flakegraph.fullname" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+  {{- if or $ingress.annotations $ingress.authProxy.enabled $ingress.compression.enabled }}
+  annotations:
+    {{- with $ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- /* The gate and compression, in whatever form the controller takes. */}}
+    {{- include "flakegraph.gatedIngressAnnotations" $root | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if $ingress.tls.secretName }}
+  tls:
+    - secretName: {{ $ingress.tls.secretName }}
+      hosts:
+        {{- if $ingress.tls.hosts }}
+        {{- range $ingress.tls.hosts }}
+        - {{ printf "%s.%s" . $ingress.domain | quote }}
+        {{- end }}
+        {{- else }}
+        {{- range $routes }}
+        - {{ printf "%s.%s" .host $ingress.domain | quote }}
+        {{- end }}
+        {{- end }}
+  {{- end }}
+  rules:
+    {{- range $routes }}
+    - host: {{ printf "%s.%s" .host $ingress.domain | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .name }}
+                port:
+                  number: {{ .port }}
+    {{- end }}
+{{- /*
+A gate that asks for a browser sign-in cannot stand in front of an interface
+whose callers are programs. An SDK sent to an issuer's authorize endpoint does
+not sign in - it follows a redirect it cannot satisfy, or reports the HTML it
+was handed as a protocol error.
+
+These paths already authenticate: each one checks a virtual key, or the parsing
+shim's own keyring, and answers 401 without it. Putting a second, browser-shaped
+challenge in front of them does not add a check - it removes the one that works.
+So they are routed by rules of their own, without the gate's middleware, and
+because these rules are longer than the `/` rules above they are the ones that
+match.
+
+Matched EXACTLY, not by prefix. The gateway does not authenticate everything
+under `/v1`: its key check is declared per route, and the build in use serves
+`/v1/mcp/oauth/authorize` to anyone. A prefix would have published that, and
+would silently publish whatever the next image adds beside it. What is safe to
+route past the gate is a path, verified one at a time - never a namespace.
+*/}}
+{{- /*
+The control plane is the one routed service that does not authenticate its own
+callers: it reads the identity the gate established. Route it past the gate and
+that header becomes an unauthenticated request parameter - anyone may claim to
+be anyone. Nothing else in this chart can catch that, so it is refused here.
+*/}}
+{{- if hasKey ($ingress.machineApiPaths | default dict) "controlPlane" }}
+{{- fail "ingress.machineApiPaths must not name controlPlane: the control plane authenticates by trusting the gate's identity header, so routing it past the gate would let any caller assert any identity." }}
+{{- end }}
+{{- $machineRoutes := list }}
+{{- range $routes }}
+{{- $paths := get ($ingress.machineApiPaths | default dict) .key | default list }}
+{{- if $paths }}
+{{- $machineRoutes = append $machineRoutes (dict "route" . "paths" $paths) }}
+{{- end }}
+{{- end }}
+{{- if $machineRoutes }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ printf "%s-machine-api" (include "flakegraph.fullname" $root) }}
+  labels:
+    {{- include "flakegraph.labels" $root | nindent 4 }}
+  {{- with $ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if $ingress.tls.secretName }}
+  tls:
+    - secretName: {{ $ingress.tls.secretName }}
+      hosts:
+        {{- range $machineRoutes }}
+        - {{ printf "%s.%s" .route.host $ingress.domain | quote }}
+        {{- end }}
+  {{- end }}
+  rules:
+    {{- range $machineRoutes }}
+    - host: {{ printf "%s.%s" .route.host $ingress.domain | quote }}
+      http:
+        paths:
+          {{- $service := .route }}
+          {{- range .paths }}
+          - path: {{ . | quote }}
+            pathType: Exact
+            backend:
+              service:
+                name: {{ $service.name }}
+                port:
+                  number: {{ $service.port }}
+          {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- if and .Values.ingress.enabled .Values.ingress.compression.enabled (eq .Values.ingress.controller "traefik") }}
+{{- include "flakegraph.requireApi" (dict "root" . "api" "traefik.io/v1alpha1/Middleware" "feature" "ingress.compression.enabled" "install" "Traefik with its CRDs") }}
+---
+# Gzip or brotli, whichever the browser offers, for anything over a kilobyte
+# that the service did not already encode. See ingress.compression in values.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "flakegraph.compressionName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+spec:
+  compress:
+    minResponseBodyBytes: 1024
+{{- end }}

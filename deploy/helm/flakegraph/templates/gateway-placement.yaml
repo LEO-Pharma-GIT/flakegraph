@@ -1,0 +1,475 @@
+{{- if include "flakegraph.engineUpstream" . }}
+{{- $placement := .Values.gateway.placement }}
+{{- $epp := $placement.endpointPicker }}
+{{- /*
+Lanes: the balancer labels each engine for people or for batch, each gateway
+alias stamps the lane its callers belong in, and one scorer here adds a bonus to
+engines whose label matches. Its weight is one more than every other weight
+together, and each scorer contributes between 0 and 1, so a matching engine
+always outscores a non-matching one - lanes behave as hard where a matching
+engine exists and fall back to ordinary scoring where none does, so no request
+is ever refused for want of a label. Derived rather than configured, so
+re-tuning the other weights cannot quietly demote it.
+*/}}
+{{- $lanes := include "flakegraph.lanesEnabled" . }}
+{{- $laneWeight := add1 (add $epp.scorerWeights.queue $epp.scorerWeights.kvCacheUtilization $epp.scorerWeights.prefixCache) }}
+{{- $envoy := $placement.envoy }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "flakegraph.inferenceRouterName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: inference-router
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "flakegraph.inferenceRouterName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: inference-router
+rules:
+  # The picker discovers engine replicas by label and scrapes their metrics. It
+  # needs to see pods and nothing else; it never mutates cluster state.
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, watch, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "flakegraph.inferenceRouterName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: inference-router
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "flakegraph.inferenceRouterName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "flakegraph.inferenceRouterName" . }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "flakegraph.inferenceRouterName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: inference-router
+data:
+  # Envoy terminates the connection and calls the picker over loopback. The
+  # picker answers with x-gateway-destination-endpoint, and the ORIGINAL_DST
+  # cluster below routes to exactly that address. Envoy never chooses a replica
+  # itself, and it forwards the body untouched, so the priority the sidecar
+  # stamps is unaffected by where the request lands.
+  envoy.yaml: |
+    admin:
+      address:
+        socket_address:
+          # Loopback only: the admin interface can drain and kill the process.
+          address: 127.0.0.1
+          port_value: {{ $envoy.adminPort }}
+    static_resources:
+      listeners:
+        - name: ready
+          address:
+            socket_address:
+              address: 0.0.0.0
+              port_value: {{ $envoy.readyPort }}
+          filter_chains:
+            - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: ready
+                    route_config:
+                      name: ready
+                      virtual_hosts:
+                        - name: ready
+                          domains: ["*"]
+                          routes:
+                            - match:
+                                path: /ready
+                              route:
+                                cluster: envoy_admin
+                    http_filters:
+                      - name: envoy.filters.http.router
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+        - name: inference
+          address:
+            socket_address:
+              address: 0.0.0.0
+              port_value: {{ $placement.service.port }}
+          per_connection_buffer_limit_bytes: 32768
+          filter_chains:
+            - name: inference
+              filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: inference
+                    route_config:
+                      name: inference
+                      virtual_hosts:
+                        - name: inference
+                          domains: ["*"]
+                          routes:
+                            - match:
+                                prefix: /
+                              route:
+                                cluster: original_destination
+                                # Generation is unbounded in wall-clock terms;
+                                # a routing timeout would cut off long answers.
+                                timeout: 0s
+                                idle_timeout: 3600s
+                    http_filters:
+                      - name: envoy.filters.http.ext_proc
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
+                          failure_mode_allow: {{ $epp.failOpen }}
+                          grpc_service:
+                            envoy_grpc:
+                              cluster_name: endpoint_picker
+                            timeout: 10s
+                          processing_mode:
+                            request_header_mode: SEND
+                            response_header_mode: SEND
+                            request_body_mode: FULL_DUPLEX_STREAMED
+                            response_body_mode: FULL_DUPLEX_STREAMED
+                            request_trailer_mode: SEND
+                            response_trailer_mode: SEND
+                          message_timeout: 1000s
+                      - name: envoy.filters.http.router
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+                          suppress_envoy_headers: true
+                    use_remote_address: true
+                    normalize_path: true
+                    merge_slashes: true
+                    common_http_protocol_options:
+                      headers_with_underscores_action: REJECT_REQUEST
+      clusters:
+        - name: envoy_admin
+          type: STATIC
+          connect_timeout: 0.25s
+          load_assignment:
+            cluster_name: envoy_admin
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: 127.0.0.1
+                          port_value: {{ $envoy.adminPort }}
+        - name: original_destination
+          type: ORIGINAL_DST
+          connect_timeout: 10s
+          lb_policy: CLUSTER_PROVIDED
+          circuit_breakers:
+            thresholds:
+              - max_connections: 40000
+                max_pending_requests: 40000
+                max_requests: 40000
+          original_dst_lb_config:
+            use_http_header: true
+            http_header_name: x-gateway-destination-endpoint
+        - name: endpoint_picker
+          type: STATIC
+          connect_timeout: 10s
+          lb_policy: ROUND_ROBIN
+          health_checks:
+            - timeout: 2s
+              interval: 10s
+              unhealthy_threshold: 3
+              healthy_threshold: 2
+              reuse_connection: true
+              grpc_health_check:
+                service_name: envoy.service.ext_proc.v3.ExternalProcessor
+          typed_extension_protocol_options:
+            envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+              "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+              explicit_http_config:
+                http2_protocol_options: {}
+          load_assignment:
+            cluster_name: endpoint_picker
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: 127.0.0.1
+                          port_value: {{ $epp.extProcPort }}
+  # Prefix affinity carries the most weight: a replica already holding the
+  # prefix skips recomputing it. Queue depth and KV utilisation keep that from
+  # piling every shared-prefix request onto one saturated replica.
+  default-plugins.yaml: |
+    apiVersion: llm-d.ai/v1alpha1
+    kind: EndpointPickerConfig
+    plugins:
+      - type: queue-scorer
+      - type: kv-cache-utilization-scorer
+      {{- if .Values.modelServing.kvEvents.enabled }}
+      # Turning a prompt into the engine's own token ids. The byte-packing
+      # fallback the picker would otherwise invent cannot match, because what it
+      # is compared against is real token ids carried in the cache events - so
+      # without a true tokenizer the index matches nothing and every score is a
+      # tie. Rendering is served by the engines themselves, unauthenticated
+      # because it allocates nothing and generates nothing.
+      - type: token-producer
+        parameters:
+          modelName: {{ .Values.modelServing.model.name | quote }}
+          vllm:
+            url: {{ printf "http://%s:%v" (include "flakegraph.modelServingName" .) (.Values.modelServing.service.port | int) | quote }}
+      # Pod add/remove drives one ZMQ subscriber per replica; without this source
+      # the producer never dials anybody.
+      - type: endpoint-notification-source
+      - type: precise-prefix-cache-producer
+        parameters:
+          tokenProcessorConfig:
+            # Must equal the engine's block size, or the hashes describe
+            # differently sized blocks and nothing lines up.
+            blockSizeTokens: {{ .Values.modelServing.kvEvents.blockSizeTokens }}
+          kvEventsConfig:
+            topicFilter: "kv@"
+            discoverPods: true
+            podDiscoveryConfig:
+              socketPort: {{ .Values.modelServing.kvEvents.port }}
+              replaySocketPort: {{ .Values.modelServing.kvEvents.replayPort }}
+          indexerConfig:
+            kvBlockIndexConfig:
+              enableMetrics: true
+      - type: prefix-cache-scorer
+        parameters:
+          # Naming the producer is the whole switch. Left out, the data layer
+          # quietly auto-creates the approximate producer and the scorer reports
+          # confident numbers about a cache it has never observed.
+          prefixMatchInfoProducerName: precise-prefix-cache-producer
+      {{- else }}
+      - type: prefix-cache-scorer
+      {{- end }}
+      {{- if $lanes }}
+      - type: header-label-affinity-scorer
+        name: lane-affinity
+        parameters:
+          headerName: {{ include "flakegraph.laneHeader" . }}
+          labelKey: flakegraph.io/lane
+      {{- end }}
+      - type: metrics-data-source
+        parameters:
+          scheme: "http"
+          path: "/metrics"
+      - type: core-metrics-extractor
+    dataLayer:
+      sources:
+        - pluginRef: metrics-data-source
+          extractors:
+            - pluginRef: core-metrics-extractor
+        {{- if .Values.modelServing.kvEvents.enabled }}
+        - pluginRef: endpoint-notification-source
+          extractors:
+            - pluginRef: precise-prefix-cache-producer
+        {{- end }}
+    schedulingProfiles:
+      - name: default
+        plugins:
+          - pluginRef: queue-scorer
+            weight: {{ $epp.scorerWeights.queue }}
+          - pluginRef: kv-cache-utilization-scorer
+            weight: {{ $epp.scorerWeights.kvCacheUtilization }}
+          - pluginRef: prefix-cache-scorer
+            weight: {{ $epp.scorerWeights.prefixCache }}
+          {{- if $lanes }}
+          - pluginRef: lane-affinity
+            weight: {{ $laneWeight }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "flakegraph.inferenceRouterName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: inference-router
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "flakegraph.selectorLabels" (dict "root" . "component" "inference-router") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $placement.service.port }}
+      targetPort: http
+      protocol: TCP
+    # The picker's own metrics. Published on the Service always, because a
+    # ServiceMonitor can only name a Service port, and the endpoint itself
+    # authenticates its callers: a scrape without a token the API server
+    # vouches for is refused, so exposing the port hands nobody anything.
+    - name: metrics
+      port: {{ $epp.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "flakegraph.inferenceRouterName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: inference-router
+spec:
+  replicas: {{ $placement.replicas }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "flakegraph.selectorLabels" (dict "root" . "component" "inference-router") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "flakegraph.selectorLabels" (dict "root" . "component" "inference-router") | nindent 8 }}
+      annotations:
+        checksum/inference-router: {{ $placement | toJson | sha256sum }}
+    spec:
+      {{- if .Values.scheduling.priorityClasses.enabled }}
+      priorityClassName: {{ include "flakegraph.servingPriorityClassName" . }}
+      {{- end }}
+      serviceAccountName: {{ include "flakegraph.inferenceRouterName" . }}
+      # Conservative: this should outlast the longest request the pool will hold.
+      terminationGracePeriodSeconds: 130
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with $placement.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $placement.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $placement.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $placement.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: envoy
+          image: {{ include "flakegraph.componentImage" $envoy.image }}
+          imagePullPolicy: {{ $envoy.image.pullPolicy }}
+          command: [envoy]
+          args:
+            - --config-path
+            - /etc/envoy/envoy.yaml
+            - --service-node
+            - {{ include "flakegraph.inferenceRouterName" . }}
+            - --log-level
+            - warn
+            - --drain-strategy
+            - immediate
+            - --drain-time-s
+            - "60"
+          ports:
+            - name: http
+              containerPort: {{ $placement.service.port }}
+              protocol: TCP
+            - name: ready
+              containerPort: {{ $envoy.readyPort }}
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: ready
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: ready
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: ready
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml $envoy.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: router-config
+              mountPath: /etc/envoy
+              readOnly: true
+        - name: endpoint-picker
+          image: {{ include "flakegraph.componentImage" $epp.image }}
+          imagePullPolicy: {{ $epp.image.pullPolicy }}
+          args:
+            # Selecting engine pods by label rather than through a custom
+            # resource keeps this installable on a cluster with no Gateway API
+            # Inference Extension CRDs.
+            - --endpoint-selector
+            - {{ printf "app.kubernetes.io/name=%s,app.kubernetes.io/instance=%s,app.kubernetes.io/component=model-serving" .Chart.Name .Release.Name | quote }}
+            # The sidecar port. The picker both routes to it and scrapes the
+            # engine metrics the sidecar relays unauthenticated.
+            - --endpoint-target-ports
+            - {{ .Values.modelServing.service.port | quote }}
+            - --config-file
+            - /config/default-plugins.yaml
+            - --zap-encoder
+            - json
+            - --grpc-health-port
+            - {{ $epp.grpcHealthPort | quote }}
+            # ext_proc never leaves the pod, so there is no transport to secure
+            # and no certificate for an operator to rotate.
+            - --secure-serving=false
+            {{- if $lanes }}
+            # header-label-affinity-scorer is registered at Alpha stability in
+            # this release, and the picker refuses to load an Alpha plugin
+            # without this. The image is pinned and a contract test holds the
+            # rendered plugin configuration, so an upstream change to the
+            # plugin shows up in CI rather than on the fleet.
+            - --allow-experimental-plugins
+            {{- end }}
+          env:
+            # The picker derives its own identity from both of these and exits
+            # at startup if either is missing.
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          ports:
+            - name: ext-proc
+              containerPort: {{ $epp.extProcPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ $epp.metricsPort }}
+              protocol: TCP
+          resources:
+            {{- toYaml $epp.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: router-config
+              mountPath: /config
+              readOnly: true
+      volumes:
+        - name: router-config
+          configMap:
+            name: {{ include "flakegraph.inferenceRouterName" . }}
+{{- if $placement.autoscaling.enabled }}
+{{ include "flakegraph.cpuHpa" (dict "root" . "name" (include "flakegraph.inferenceRouterName" .) "kind" "Deployment" "component" "inference-router" "autoscaling" $placement.autoscaling) }}
+{{- end }}
+{{- end }}

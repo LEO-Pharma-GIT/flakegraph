@@ -1,0 +1,51 @@
+# The GPU profile: a vLLM server on this host serving an open Qwen3 model,
+# MinerU for layout-aware OCR and local sentence-transformers embeddings. It
+# needs a CUDA GPU with room for the model; on a laptop use
+# configs/app-defaults.yaml, which runs the same pipeline against Ollama. The
+# Kubernetes chart and deploy/examples carry hardware-specific serving
+# profiles (quantised checkpoints, KV-cache settings) for particular GPUs.
+runtime:
+  runtime: local
+job:
+  job_id: local-vllm-mineru-oss
+  graph_id: local-vllm-mineru-oss-graph
+files:
+  source: local
+  input_path: data/martial_arts/files
+  include_globs:
+    - "**/*.pdf"
+    - "**/*.docx"
+    - "**/*.pptx"
+    - "**/*.xlsx"
+    - "**/*.png"
+    - "**/*.jpg"
+    - "**/*.jpeg"
+    - "**/*.tif"
+    - "**/*.tiff"
+    - "**/*.bmp"
+    - "**/*.webp"
+ocr:
+  provider: mineru_internal
+  mineru_command: mineru
+  mineru_method: auto
+  mineru_backend: pipeline
+  mineru_effort: medium
+  model_cache_dir: out/cache/mineru
+llm:
+  provider: vllm_local
+  endpoint: http://localhost:8000/v1
+  # Served with `vllm serve Qwen/Qwen3-8B`. Any model the server loads works;
+  # the name here must match what the server reports.
+  model: Qwen/Qwen3-8B
+embedding:
+  provider: sentence_transformers
+  model: Qwen/Qwen3-Embedding-0.6B
+  dimension: 1024
+  batch_size: 32
+  device: ${KG_EMBED_DEVICE}
+writer:
+  provider: local_artifacts
+  output_path: out/local-vllm-mineru-oss
+cache:
+  provider: local
+  path: out/cache/local-vllm-mineru-oss

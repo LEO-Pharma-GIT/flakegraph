@@ -1,0 +1,18 @@
+Martial Arts History Smoke Fixture
+Five connected facts for fast parser and container validation
+
+A compact connected path
+
+This short original fixture keeps the fastest local checks useful while remaining inside the same annotated corpus as the larger documents. It follows a path from judo institutions through grappling exchange to modern hybrid competition, with karate providing a second regional anchor.
+
+The wording is intentionally direct. Each sentence names both endpoints and states one relation, allowing deterministic smoke providers to test file discovery, chunking, evidence offsets, and graph persistence without replacing the richer benchmark documents.
+
+Jigoro Kano founded the Kodokan in Tokyo in 1882.
+
+Jigoro Kano developed judo as a modern educational martial art.
+
+Brazilian Jiu-Jitsu was influenced by judo in its approach to grappling practice.
+
+Mixed Martial Arts uses wrestling for takedowns and positional control.
+
+Karate originated in Okinawa before organized instruction carried it to wider audiences.

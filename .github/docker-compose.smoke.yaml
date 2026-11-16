@@ -1,0 +1,17 @@
+services:
+  flakegraph:
+    platform: linux/amd64
+    build:
+      context: ..
+      args:
+        KG_INSTALL_MINERU: "false"
+        KG_INSTALL_LOCAL_EMBEDDINGS: "false"
+    image: flakegraph:smoke
+    command: ["worker", "--config", "/app/smoke.yaml"]
+    volumes:
+      - ../.github/configs/smoke.yaml:/app/smoke.yaml:ro
+      - ../data:/app/data:ro
+      - flakegraph-out:/app/out
+
+volumes:
+  flakegraph-out:

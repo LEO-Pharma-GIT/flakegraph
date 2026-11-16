@@ -1,0 +1,90 @@
+{{- if .Values.monitoring.enabled }}
+{{- $ingress := .Values.ingress }}
+{{- $grafanaHost := printf "%s.%s" .Values.monitoring.grafana.host $ingress.domain }}
+{{- /*
+Grafana is the stack's, but its front door is this chart's: the same domain,
+certificate, and sign-in gate as the control plane, so an operator who can open
+the fleet's UI can open its dashboards with the same session. The stack's own
+ingress is left off so there is exactly one way in.
+*/}}
+{{- /*
+Only while the stack shares this namespace: an Ingress backs onto a Service in
+its own namespace and nowhere else, and the NetworkPolicy below selects pods
+here. A stack elsewhere publishes Grafana through its own ingress.
+*/}}
+{{- if and $ingress.enabled (include "flakegraph.monitoringInNamespace" .) }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "flakegraph.fullname" . }}-grafana
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: monitoring
+  {{- if or $ingress.annotations $ingress.authProxy.enabled $ingress.compression.enabled }}
+  annotations:
+    {{- with $ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- include "flakegraph.gatedIngressAnnotations" . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if $ingress.tls.secretName }}
+  tls:
+    - secretName: {{ $ingress.tls.secretName }}
+      hosts:
+        {{- if $ingress.tls.hosts }}
+        {{- range $ingress.tls.hosts }}
+        - {{ printf "%s.%s" . $ingress.domain | quote }}
+        {{- end }}
+        {{- else }}
+        - {{ $grafanaHost | quote }}
+        {{- end }}
+  {{- end }}
+  rules:
+    - host: {{ $grafanaHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "flakegraph.grafanaServiceName" . }}
+                port:
+                  number: {{ .Values.monitoring.grafana.servicePort }}
+{{- end }}
+{{- if and .Values.controlPlane.networkPolicy.enabled (include "flakegraph.monitoringInNamespace" .) }}
+---
+{{- /*
+The same argument as the control plane's policy, for the same reason: behind
+the gate Grafana is configured to trust the identity header the ingress
+controller sets, and that header is proof only for traffic that came through
+the controller. So the controller is the one peer admitted to Grafana's port -
+the very list the control plane names - plus the stack's own Prometheus, which
+scrapes Grafana about itself. Gated on the control plane's switch because the
+peer is site-specific in exactly the same way, and a wrong one makes Grafana
+unreachable rather than unprotected.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "flakegraph.fullname" . }}-grafana
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- toYaml .Values.controlPlane.networkPolicy.from | nindent 8 }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+{{- end }}
+{{- end }}

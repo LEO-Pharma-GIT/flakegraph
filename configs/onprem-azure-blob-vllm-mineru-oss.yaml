@@ -1,0 +1,63 @@
+runtime:
+  runtime: onprem
+job:
+  job_id: ${KG_JOB_ID}
+  graph_id: ${KG_GRAPH_ID}
+  use_file_queue: true
+  lease_owner: ${KG_JOB_LEASE_OWNER}
+  lease_seconds: 900
+  file_batch_size: 100
+files:
+  source: azure_blob
+  include_globs:
+    - "**/*.pdf"
+    - "**/*.docx"
+    - "**/*.pptx"
+    - "**/*.xlsx"
+    - "**/*.png"
+    - "**/*.jpg"
+    - "**/*.jpeg"
+    - "**/*.tif"
+    - "**/*.tiff"
+    - "**/*.bmp"
+    - "**/*.webp"
+azure_blob:
+  account_url: ${KG_AZURE_BLOB_ACCOUNT_URL}
+  connection_string: ${KG_AZURE_BLOB_CONNECTION_STRING}
+  container: ${KG_AZURE_BLOB_CONTAINER}
+  prefix: ${KG_AZURE_BLOB_PREFIX}
+  sas_token: ${KG_AZURE_BLOB_SAS_TOKEN}
+  download_path: out/azure-blob
+ocr:
+  provider: mineru_internal
+  mineru_command: mineru
+  mineru_method: auto
+  mineru_backend: pipeline
+  mineru_effort: medium
+  model_cache_dir: /home/kgprocessor/.cache/mineru
+llm:
+  provider: vllm_local
+  endpoint: ${KG_LLM_ENDPOINT}
+  model: ${KG_LLM_MODEL}
+  api_key: ${KG_LLM_API_KEY}
+embedding:
+  provider: sentence_transformers
+  model: Snowflake/snowflake-arctic-embed-l-v2.0
+  dimension: 1024
+  batch_size: 32
+  device: ${KG_EMBED_DEVICE}
+writer:
+  provider: snowflake_bulk
+cache:
+  provider: snowflake
+snowflake:
+  account: ${KG_SNOWFLAKE_ACCOUNT}
+  host: ${KG_SNOWFLAKE_HOST}
+  user: ${KG_SNOWFLAKE_USER}
+  password: ${KG_SNOWFLAKE_PASSWORD}
+  authenticator: ${KG_SNOWFLAKE_AUTHENTICATOR}
+  database: ${KG_SNOWFLAKE_DATABASE}
+  schema: ${KG_SNOWFLAKE_SCHEMA}
+  role: ${KG_SNOWFLAKE_ROLE}
+  warehouse: ${KG_SNOWFLAKE_WAREHOUSE}
+  bulk_stage: ${KG_SNOWFLAKE_BULK_STAGE}

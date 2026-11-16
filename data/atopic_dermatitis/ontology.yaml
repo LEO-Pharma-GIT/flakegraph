@@ -1,0 +1,112 @@
+name: atopic-dermatitis-treatment
+description: A profile for treatments of atopic dermatitis, their molecular targets, the trials that tested them, what those trials measured, and the conditions around the disease.
+mode: hybrid
+entity_types:
+  - name: DRUG
+    description: A named medicinal substance or product, including investigational compounds, biologics, small molecules, topical agents and comparators such as placebo-free standard treatments (for example dupilumab, abrocitinib, cyclosporine, tacrolimus ointment).
+    aliases: [medication, compound, active_substance, therapy]
+  - name: DRUG_CLASS
+    description: A named class of treatments grouped by mechanism, route or kind (for example JAK inhibitor, IL-13 inhibitor, topical corticosteroid, biologic, PDE4 inhibitor, calcineurin inhibitor).
+    aliases: [therapeutic_class, drug_family]
+  - name: DISEASE
+    description: A named disease, disorder, symptom or adverse event, including atopic dermatitis itself, its comorbidities, and effects seen with treatment (for example asthma, conjunctivitis, pruritus, herpes simplex infection).
+    aliases: [condition, disorder, adverse_event, symptom, comorbidity]
+  - name: MOLECULAR_ENTITY
+    description: A named cytokine, receptor, enzyme, protein, gene or signaling pathway (for example IL-13, IL-4 receptor alpha, JAK1, aryl hydrocarbon receptor, filaggrin, JAK-STAT pathway).
+    aliases: [cytokine, receptor, protein, gene, enzyme, pathway, biomarker]
+  - name: CELL_TYPE
+    description: A named cell type or cell population (for example Th2 cells, group 2 innate lymphoid cells, keratinocytes, eosinophils, mast cells).
+    aliases: [cell, cell_population]
+  - name: MICROORGANISM
+    description: A named bacterium, fungus or virus (for example Staphylococcus aureus, Malassezia furfur, herpes simplex virus).
+    aliases: [microbe, pathogen, organism]
+  - name: CLINICAL_STUDY
+    description: A named clinical trial, study programme or registry, identified by its name or registration number (for example SOLO 1, JADE MONO-1, ECZTRA 1, TREATgermany, NCT03569293).
+    aliases: [trial, study, registry]
+  - name: OUTCOME_MEASURE
+    description: A named clinical endpoint, score or instrument (for example EASI-75, IGA 0/1, SCORAD, Peak Pruritus NRS, DLQI, ADCT).
+    aliases: [endpoint, score, instrument, scale]
+  - name: ORGANIZATION
+    description: A named company, regulator, society or institution (for example FDA, European Medicines Agency, Sanofi, Pfizer, National Eczema Association).
+    aliases: [company, regulator, sponsor, institution]
+  - name: LOCATION
+    description: A named country or region where a study was conducted or a population lives (for example Japan, Korea, Germany, United Kingdom).
+    aliases: [country, region]
+relation_types:
+  - name: TREATS
+    description: The source drug or drug class is used, approved or tested as a treatment for the target disease or symptom.
+    source_types: [DRUG, DRUG_CLASS]
+    target_types: [DISEASE]
+    aliases: [indicated_for, used_to_treat, improves]
+  - name: HAS_ADVERSE_EVENT
+    description: The source drug or drug class is reported to cause or be associated with the target adverse event.
+    source_types: [DRUG, DRUG_CLASS]
+    target_types: [DISEASE]
+    aliases: [causes, associated_with_adverse_event, side_effect]
+  - name: BELONGS_TO_CLASS
+    description: The source drug is a member of the target drug class.
+    source_types: [DRUG]
+    target_types: [DRUG_CLASS]
+    aliases: [is_a, member_of_class]
+  - name: TARGETS
+    description: The source drug or drug class acts on the target molecule or pathway, by blocking, inhibiting, binding or activating it.
+    source_types: [DRUG, DRUG_CLASS]
+    target_types: [MOLECULAR_ENTITY]
+    aliases: [inhibits, blocks, binds, antagonizes, activates, agonist_of]
+  - name: EVALUATED_IN
+    description: The source drug was studied in the target clinical study.
+    source_types: [DRUG]
+    target_types: [CLINICAL_STUDY]
+    aliases: [tested_in, studied_in]
+  - name: STUDIES_CONDITION
+    description: The source clinical study enrolled patients with, or studied, the target disease.
+    source_types: [CLINICAL_STUDY]
+    target_types: [DISEASE]
+    aliases: [enrolled_patients_with]
+  - name: MEASURED_BY
+    description: The source clinical study used the target outcome measure as an endpoint or assessment.
+    source_types: [CLINICAL_STUDY]
+    target_types: [OUTCOME_MEASURE]
+    aliases: [has_endpoint, assessed_with]
+  - name: COMPARED_WITH
+    description: The source drug was directly compared with the target drug in a study or analysis.
+    source_types: [DRUG, DRUG_CLASS]
+    target_types: [DRUG, DRUG_CLASS]
+    symmetric: true
+    aliases: [versus, compared_to]
+  - name: APPROVED_BY
+    description: The source drug received regulatory approval from the target regulator.
+    source_types: [DRUG]
+    target_types: [ORGANIZATION]
+    aliases: [authorized_by]
+  - name: DEVELOPED_BY
+    description: The source drug was developed or marketed by the target company, or the source study was sponsored by it.
+    source_types: [DRUG, CLINICAL_STUDY]
+    target_types: [ORGANIZATION]
+    aliases: [manufactured_by, sponsored_by, marketed_by]
+  - name: CONDUCTED_IN
+    description: The source clinical study was conducted in the target location.
+    source_types: [CLINICAL_STUDY]
+    target_types: [LOCATION]
+    aliases: [took_place_in]
+  - name: ASSOCIATED_WITH
+    description: The source disease is stated to co-occur with, predispose to or be a risk factor for the target disease.
+    source_types: [DISEASE]
+    target_types: [DISEASE]
+    symmetric: true
+    aliases: [comorbid_with, risk_factor_for]
+  - name: INVOLVED_IN
+    description: The source molecule, cell type or microorganism is stated to drive, mediate or mark the target disease or symptom.
+    source_types: [MOLECULAR_ENTITY, CELL_TYPE, MICROORGANISM]
+    target_types: [DISEASE]
+    aliases: [drives, mediates, contributes_to, biomarker_of]
+  - name: REGULATES
+    description: The source molecule is stated to increase, decrease, activate or signal through the target molecule or cell type.
+    source_types: [MOLECULAR_ENTITY]
+    target_types: [MOLECULAR_ENTITY, CELL_TYPE]
+    aliases: [upregulates, downregulates, induces, signals_through]
+  - name: PRODUCED_BY
+    description: The source molecule is produced, secreted or expressed by the target cell type.
+    source_types: [MOLECULAR_ENTITY]
+    target_types: [CELL_TYPE]
+    aliases: [secreted_by, expressed_by]

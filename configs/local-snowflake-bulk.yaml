@@ -1,0 +1,36 @@
+runtime:
+  runtime: local
+job:
+  job_id: local-snowflake-bulk
+  graph_id: local-snowflake-bulk-graph
+files:
+  source: local
+  input_path: data/martial_arts/files/smoke.txt
+ocr:
+  provider: builtin_text
+llm:
+  provider: azure_openai
+  endpoint: ${KG_LLM_ENDPOINT}
+  model: ${KG_LLM_MODEL}
+  api_key: ${KG_LLM_API_KEY}
+  api_version: ${KG_LLM_API_VERSION}
+embedding:
+  provider: azure_openai
+  endpoint: ${KG_EMBED_ENDPOINT}
+  model: ${KG_EMBED_MODEL}
+  api_key: ${KG_EMBED_API_KEY}
+  api_version: ${KG_EMBED_API_VERSION}
+  dimension: 1536
+writer:
+  provider: snowflake_bulk
+snowflake:
+  account: ${KG_SNOWFLAKE_ACCOUNT}
+  host: ${KG_SNOWFLAKE_HOST}
+  user: ${KG_SNOWFLAKE_USER}
+  password: ${KG_SNOWFLAKE_PASSWORD}
+  authenticator: ${KG_SNOWFLAKE_AUTHENTICATOR}
+  database: ${KG_SNOWFLAKE_DATABASE}
+  schema: ${KG_SNOWFLAKE_SCHEMA}
+  role: ${KG_SNOWFLAKE_ROLE}
+  warehouse: ${KG_SNOWFLAKE_WAREHOUSE}
+  bulk_stage: ${KG_SNOWFLAKE_BULK_STAGE}

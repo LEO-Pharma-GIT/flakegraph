@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "status": "partial",
+  "status_reason": "One complete uncached run, scored with the pipeline's evaluator against the exhaustive gold, so precision and F1 are measured; a single run carries no stability estimate. Submitted from the console's sample pack on the six-node fleet.",
+  "result_id": "adt-v1.1-qwen38-27b-nvfp4-vllm-k8s-6x-gb10-20260924",
+  "measured_at_utc": "2026-09-24T22:12:59Z",
+  "dataset": {
+    "id": "atopic-dermatitis-treatment-v1",
+    "version": "1.1.0",
+    "license": "CC0-1.0",
+    "gold_path": "data/atopic_dermatitis/gold.json",
+    "gold_sha256": "b081f5737eca6b7077c6bb3281ce08686da0affd878e12b2bacc4877f48cd7c8",
+    "manifest_path": "data/atopic_dermatitis/manifest.jsonl",
+    "manifest_sha256": "3dde24d3dc7261c2bb762563c74979afb886d669d3e3b1ceb1d52a6b640f950e",
+    "document_count": 50,
+    "expected_entity_count": 3462,
+    "expected_relation_count": 5762,
+    "evidence_observation_count": 7857
+  },
+  "configuration": {
+    "path": null,
+    "sha256": "89a96c5eb5129fd233dc2d61deb32cb19d54c688c11a448f9e4803262f12b11e",
+    "ontology_path": "data/atopic_dermatitis/ontology.yaml",
+    "ontology_sha256": "c115344f1f2d6cbd9476e1ab18d4d48f146975c2943ceadee22ec9fb8e2a20cc"
+  },
+  "models": {
+    "llm": {
+      "name": "unsloth/Qwen3.8-27B-NVFP4",
+      "provider": "vllm_local"
+    },
+    "embedding": {
+      "name": "Qwen/Qwen3-Embedding-0.6B",
+      "provider": "sentence_transformers",
+      "dimension": 1024
+    }
+  },
+  "runtime": {
+    "execution": "Kubernetes",
+    "serving_software": "NVIDIA vLLM",
+    "inference_path": "LiteLLM, Envoy with the llm-d endpoint picker, per-pod auth sidecar",
+    "ocr_provider": "fallback (builtin_text, mineru_api)"
+  },
+  "protocol": {
+    "requested_repeats": 1,
+    "completed_repeats": 1,
+    "run_ids": [
+      "run_c34288464e1c"
+    ],
+    "cache_disabled": true,
+    "failed_task_attempts": 0
+  },
+  "measurements": {
+    "accepted_run_count": 0,
+    "quality": {
+      "aggregation": "single_run",
+      "acceptance_thresholds_met": false,
+      "failed_gates": [
+        "entity_precision",
+        "entity_recall",
+        "evidence_support",
+        "triple_precision",
+        "triple_recall",
+        "two_hop_recoverability"
+      ],
+      "component_count": null,
+      "entity_precision": 0.6776,
+      "entity_recall": 0.539,
+      "entity_f1": 0.6004,
+      "triple_precision": 0.5997,
+      "triple_recall": 0.2333,
+      "triple_f1": 0.3359,
+      "evidence_support_rate": 0.139,
+      "information_retention": 0.3861,
+      "isolate_ratio": 0.5957,
+      "two_hop_recoverability": 0.3599,
+      "output_entities": 2953.0,
+      "output_relations": 2241.0
+    },
+    "timing_seconds": {
+      "mean": 5785.0
+    },
+    "extraction_documents_per_minute": 0.519,
+    "stability": {
+      "pair_count": 0,
+      "mean_node_jaccard": null,
+      "minimum_node_jaccard": null,
+      "mean_triple_jaccard": null,
+      "minimum_triple_jaccard": null
+    }
+  }
+}

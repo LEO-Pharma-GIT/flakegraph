@@ -1,0 +1,9 @@
+FlakeGraph
+Copyright 2026 LEO Pharma A/S
+
+This product is licensed under the Apache License, Version 2.0; see LICENSE.
+
+This product depends on third-party software and downloads third-party model
+weights that carry their own licences and notices. They are listed, with the
+obligations that apply when redistributing a package or image, in
+THIRD_PARTY_NOTICES.md.

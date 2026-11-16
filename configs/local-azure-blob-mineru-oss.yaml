@@ -1,0 +1,47 @@
+runtime:
+  runtime: local
+job:
+  job_id: local-azure-blob-mineru-oss
+  graph_id: local-azure-blob-mineru-oss-graph
+files:
+  source: azure_blob
+  include_globs:
+    - "**/*.pdf"
+    - "**/*.docx"
+    - "**/*.pptx"
+    - "**/*.xlsx"
+    - "**/*.png"
+    - "**/*.jpg"
+    - "**/*.jpeg"
+    - "**/*.tif"
+    - "**/*.tiff"
+    - "**/*.bmp"
+    - "**/*.webp"
+azure_blob:
+  account_url: ${KG_AZURE_BLOB_ACCOUNT_URL}
+  connection_string: ${KG_AZURE_BLOB_CONNECTION_STRING}
+  container: ${KG_AZURE_BLOB_CONTAINER}
+  prefix: ${KG_AZURE_BLOB_PREFIX}
+  sas_token: ${KG_AZURE_BLOB_SAS_TOKEN}
+  download_path: out/azure-blob
+ocr:
+  provider: mineru_internal
+  mineru_command: mineru
+  mineru_method: auto
+  mineru_backend: pipeline
+  mineru_effort: medium
+  model_cache_dir: out/cache/mineru
+llm:
+  provider: openai_compatible
+  endpoint: ${KG_LLM_ENDPOINT}
+  model: ${KG_LLM_MODEL}
+  api_key: ${KG_LLM_API_KEY}
+embedding:
+  provider: sentence_transformers
+  model: sentence-transformers/all-MiniLM-L6-v2
+  dimension: 384
+  batch_size: 32
+  device: ${KG_EMBED_DEVICE}
+writer:
+  provider: local_artifacts
+  output_path: out/local-azure-blob-mineru-oss

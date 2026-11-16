@@ -1,0 +1,67 @@
+{{- if and .Values.modelServing.enabled .Values.modelServing.networkPolicy.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "flakegraph.modelServingName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: model-serving
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "flakegraph.selectorLabels" (dict "root" . "component" "model-serving") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    # The router is the only thing that may reach the enforcement floor. The
+    # engine's own port is absent from every rule and bound to loopback besides,
+    # so nothing in the cluster can reach inference without being stamped.
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "flakegraph.selectorLabels" (dict "root" . "component" "inference-router") | nindent 14 }}
+      ports:
+        - port: http
+          protocol: TCP
+    {{- if .Values.modelServing.balancer.enabled }}
+    # The balancer reads each engine's occupancy and sets its batch admission,
+    # on the sidecar's own route and with an interactive key. It reaches the
+    # same port the router does and never the engine's, so reserving a machine
+    # for people goes through the enforcement floor like everything else.
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "flakegraph.selectorLabels" (dict "root" . "component" "serving-balancer") | nindent 14 }}
+      ports:
+        - port: http
+          protocol: TCP
+    {{- end }}
+    {{- if .Values.modelServing.kvEvents.enabled }}
+    # Cache events flow the other way: the picker subscribes so it can route on
+    # what a replica actually holds rather than on a hash of the prefix.
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "flakegraph.selectorLabels" (dict "root" . "component" "inference-router") | nindent 14 }}
+      ports:
+        - port: kv-events
+          protocol: TCP
+        - port: kv-replay
+          protocol: TCP
+    {{- end }}
+    {{- if .Values.monitoring.enabled }}
+    # The stack's Prometheus scrapes the sidecar's metrics on the same port the
+    # router uses. Metrics are the one thing the sidecar serves unstamped, and
+    # the engine's own port is still absent, so this admits observation and
+    # nothing else. Only the namespace the stack runs in: a Prometheus
+    # elsewhere is not the one these targets are for.
+    - from:
+        {{- include "flakegraph.prometheusPeer" . | nindent 8 }}
+      ports:
+        - port: http
+          protocol: TCP
+    {{- end }}
+    {{- with .Values.modelServing.networkPolicy.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

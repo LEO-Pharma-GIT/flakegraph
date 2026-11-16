@@ -1,0 +1,113 @@
+{{- if .Values.monitoring.enabled }}
+{{- include "flakegraph.monitoringRequired" . }}
+{{- $interval := .Values.monitoring.scrapeInterval }}
+{{- /*
+What the stack's Prometheus scrapes, one ServiceMonitor per plane. Each target
+gets a `job` equal to its Service name, which is what the alerts key on, and
+a `node` label so a dashboard can put a symptom on a host. Nothing here needs
+the stack's release label: its selectors admit every monitor in the namespace.
+*/}}
+{{- if .Values.modelServing.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "flakegraph.modelServingName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: model-serving
+spec:
+  selector:
+    matchLabels:
+      {{- include "flakegraph.selectorLabels" (dict "root" . "component" "model-serving") | nindent 6 }}
+      # The headless Service, so each engine is its own target. Selecting on
+      # the component alone would also match the load-balanced Service and
+      # scrape every engine twice.
+      flakegraph.io/scrape: "true"
+  endpoints:
+    # The sidecar's port. It relays the engine's own series (vllm:*) beside its
+    # own, unauthenticated, because a scrape allocates nothing and generates
+    # nothing; the NetworkPolicy admits the stack's Prometheus to it.
+    - port: http
+      path: /metrics
+      interval: {{ $interval }}
+      relabelings:
+        # One engine per pod, so the pod name is the engine's name.
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: engine
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+{{- end }}
+{{- if .Values.gateway.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "flakegraph.gatewayName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  selector:
+    matchLabels:
+      {{- include "flakegraph.selectorLabels" (dict "root" . "component" "gateway") | nindent 6 }}
+  endpoints:
+    # Served once the prometheus callback is in the proxy's config, which the
+    # gateway template adds whenever monitoring is on.
+    - port: http
+      path: /metrics
+      interval: {{ $interval }}
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+{{- end }}
+{{- if include "flakegraph.engineUpstream" . }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "flakegraph.inferenceRouterName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: inference-router
+spec:
+  selector:
+    matchLabels:
+      {{- include "flakegraph.selectorLabels" (dict "root" . "component" "inference-router") | nindent 6 }}
+  endpoints:
+    # The picker authenticates scrapes: it hands the bearer token to the API
+    # server's TokenReview, then asks SubjectAccessReview whether that identity
+    # may GET /metrics. Prometheus presents its own ServiceAccount token, the
+    # same way the stack scrapes the kubelet, and the stack's ClusterRole
+    # already grants it the /metrics non-resource URL. The picker needs a
+    # grant of its own to ask those questions; monitoring-rbac.yaml holds it.
+    - port: metrics
+      path: /metrics
+      interval: {{ $interval }}
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+{{- end }}
+{{- if .Values.documentParsing.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "flakegraph.ocrShimName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ocr-shim
+spec:
+  selector:
+    matchLabels:
+      {{- include "flakegraph.selectorLabels" (dict "root" . "component" "ocr-shim") | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ $interval }}
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+{{- end }}
+{{- end }}

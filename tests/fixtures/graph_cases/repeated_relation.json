@@ -1,0 +1,80 @@
+{
+  "name": "repeated_relation",
+  "description": "Repeated grounded relation observations across chunks merge into one canonical edge with evidence from both chunks.",
+  "input": {
+    "filename": "golden.txt",
+    "text": "Alice Smith works at Acme Corp. Alice Smith works for Acme Corp.\n"
+  },
+  "settings": {
+    "chunk_token_size": 6,
+    "chunk_token_overlap": 0
+  },
+  "expected": {
+    "run_id": "run_fc2eedfe3baf4c27d4a50b985ef041b0",
+    "ordered_chunk_hash": "ce47bf096a90e0c655132566bcf577c1d905fafe18bb98b25f18cf5f54cb66e3",
+    "counts": {
+      "chunks_created": 2,
+      "blocks_created": 1,
+      "assets_created": 0,
+      "entities_extracted": 4,
+      "entities_after_filter": 4,
+      "relations_extracted": 2,
+      "relations_after_filter": 2,
+      "nodes_created": 2,
+      "edges_created": 1,
+      "evidence_created": 6,
+      "communities_created": 1
+    },
+    "nodes": {
+      "Acme Corp": {
+        "primary_type": "ORGANIZATION",
+        "source_chunk_count": 2,
+        "entity_source_mention_count": 2
+      },
+      "Alice Smith": {
+        "primary_type": "PERSON",
+        "source_chunk_count": 2,
+        "entity_source_mention_count": 2
+      }
+    },
+    "edge": {
+      "source": "Alice Smith",
+      "target": "Acme Corp",
+      "relation_type": "related_to",
+      "weight": 2.0,
+      "source_chunk_count": 2
+    },
+    "evidence": {
+      "total": 6,
+      "node": 4,
+      "edge": 2,
+      "quotes": [
+        "Acme Corp",
+        "Alice Smith",
+        "Alice Smith works at Acme Corp.",
+        "Alice Smith works for Acme Corp."
+      ]
+    },
+    "merge_decision_actions": {
+      "aggregated": 1,
+      "created": 1,
+      "merged": 2
+    },
+    "merge_decision_reasons": {
+      "canonical_edge_created": 1,
+      "entity_observations_merged": 2,
+      "relation_evidence_aggregated": 1
+    },
+    "dedupe": {
+      "entity_reduction": 2,
+      "relation_reduction": 1
+    },
+    "community": {
+      "member_names": [
+        "Acme Corp",
+        "Alice Smith"
+      ],
+      "finding_count": 1
+    }
+  }
+}

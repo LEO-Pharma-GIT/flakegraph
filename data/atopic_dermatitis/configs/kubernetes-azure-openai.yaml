@@ -1,0 +1,40 @@
+# Distributed profile that extracts this corpus with an Azure OpenAI deployment,
+# the reference model the gold was first drawn from. Everything except the
+# llm block matches what the console submits for the fleet's own model, so the
+# two graphs differ by model alone. The submitter reads files/ once and stores
+# the bytes in the shared artifact store; worker pods need no data directory.
+# The workers need KG_AZURE_OPENAI_ENDPOINT, KG_AZURE_OPENAI_DEPLOYMENT and
+# KG_AZURE_OPENAI_API_KEY in their environment.
+runtime:
+  runtime: kubernetes
+files:
+  source: local
+  input_path: data/atopic_dermatitis/files
+  include_globs:
+    - "*.md"
+ocr:
+  provider: builtin_text
+llm:
+  provider: azure_openai
+  endpoint: ${KG_AZURE_OPENAI_ENDPOINT}
+  model: ${KG_AZURE_OPENAI_DEPLOYMENT}
+  api_key: ${KG_AZURE_OPENAI_API_KEY}
+  timeout_seconds: 3600
+embedding:
+  provider: sentence_transformers
+  model: Qwen/Qwen3-Embedding-0.6B
+  dimension: 1024
+  torch_dtype: float16
+  batch_size: 32
+ontology:
+  profile_path: data/atopic_dermatitis/ontology.yaml
+graph:
+  community_algorithm: leiden
+  # A reference graph is exported even when a quality gate fails, so the
+  # failure is visible in the gold review rather than losing the run.
+  fail_on_quality_error: false
+writer:
+  provider: local_artifacts
+  output_path: /data/output
+cache:
+  provider: none

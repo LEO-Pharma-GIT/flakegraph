@@ -1,0 +1,211 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-quality:
+    name: Python quality gates (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor pyproject declares and the newest release, so a change
+        # that only works on one of them fails here rather than for a user.
+        python-version: ["3.12", "3.14"]
+    services:
+      postgres:
+        image: postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
+        env:
+          POSTGRES_DB: flakegraph
+          POSTGRES_USER: flakegraph
+          # A throwaway password for the job's own service container, which
+          # lives for one run on the runner's loopback and holds nothing.
+          POSTGRES_PASSWORD: flakegraph
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        run: python -m pip install "uv==0.11.28"
+
+      # The runner image ships Helm 3, whose client-side dry-run install
+      # insists on reaching a cluster; the chart tests render NOTES.txt through
+      # that dry run with no kubeconfig, which only Helm 4 allows.
+      - name: Set up Helm 4
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.2.3
+
+      - name: Install locked development environment
+        run: uv sync --locked --extra dev --extra distributed-spark
+
+      # The export resolves Linux Torch from PyTorch's CPU wheel index, as
+      # pyproject's [tool.uv.sources] does, so pip-audit's own resolver has to
+      # see that index too or it cannot find the exported torch pin at all.
+      - name: Audit runtime dependencies
+        run: |
+          uv export --locked --no-dev --no-emit-project --all-extras \
+            --output-file /tmp/flakegraph-runtime-requirements.txt
+          uvx --python ${{ matrix.python-version }} pip-audit==2.10.1 \
+            --requirement /tmp/flakegraph-runtime-requirements.txt \
+            --extra-index-url https://download.pytorch.org/whl/cpu \
+            --progress-spinner off
+
+      - name: Ruff
+        run: uv run ruff check .
+
+      - name: Mypy
+        run: uv run mypy src/kg_processor tests
+
+      - name: Pytest
+        run: uv run pytest --cov=kg_processor --cov-report=term-missing
+
+      - name: PostgreSQL integration contract
+        env:
+          KG_TEST_POSTGRES_DSN: postgresql://flakegraph:flakegraph@localhost:5432/flakegraph
+        run: >-
+          uv run pytest tests/integration/test_postgres_distributed_store.py
+          tests/integration/test_ocr_shim_queue.py
+
+      # Every profile the chart documents renders, and every optional plane
+      # is exercised at least once: a regression that only appears with model
+      # serving, monitoring, the gate, or an example profile switched on is
+      # invisible to a render of the defaults alone.
+      - name: Validate Helm chart
+        env:
+          # The CRD-backed APIs the optional planes need, declared present so
+          # an offline render includes them.
+          OPTIONAL_APIS: >-
+            monitoring.coreos.com/v1/ServiceMonitor,monitoring.coreos.com/v1/PodMonitor,monitoring.coreos.com/v1/PrometheusRule,keda.sh/v1alpha1/ScaledObject,postgresql.cnpg.io/v1/Cluster,traefik.io/v1alpha1/Middleware,traefik.io/v1alpha1/IngressRoute
+        run: |
+          set -euo pipefail
+          chart=deploy/helm/flakegraph
+          helm lint "$chart"
+          helm lint "$chart" --values deploy/examples/dgx-spark-k3s-values.yaml
+          helm lint "$chart" --values deploy/examples/external-provider-values.yaml
+          helm lint "$chart" --values deploy/examples/minimal-cpu-values.yaml
+          # Defaults, with and without the optional APIs on the cluster.
+          helm template ci "$chart" >/dev/null
+          helm template ci "$chart" --set-file config.content=configs/app-defaults.yaml >/dev/null
+          # Each example profile.
+          for values in deploy/examples/*.yaml; do
+            helm template ci "$chart" --api-versions "$OPTIONAL_APIS" --values "$values" >/dev/null
+          done
+          # Every optional plane on at once, on a Traefik cluster.
+          helm template ci "$chart" --api-versions "$OPTIONAL_APIS" \
+            --set modelServing.enabled=true \
+            --set autoscaling.enabled=true \
+            --set database.cloudNativePG.enabled=true \
+            --set monitoring.enabled=true \
+            --set spark.enabled=true --set artifactStorage.uri=s3://artifacts \
+            --set ingress.enabled=true --set ingress.domain=example.test \
+            --set ingress.controller=traefik --set ingress.compression.enabled=true \
+            --set ingress.authProxy.enabled=true --set controlPlane.networkPolicy.enabled=true \
+            >/dev/null
+          # The gate on ingress-nginx, and an external provider with no GPU plane.
+          helm template ci "$chart" \
+            --set ingress.enabled=true --set ingress.domain=example.test \
+            --set ingress.controller=nginx \
+            --set ingress.authProxy.enabled=true --set controlPlane.networkPolicy.enabled=true \
+            >/dev/null
+          helm template ci "$chart" \
+            --set gateway.litellm.upstream.type=external \
+            --set 'gateway.litellm.upstream.models[0]=openai/gpt-4o' \
+            >/dev/null
+
+  console:
+    name: Console quality gates
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: react
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3"
+
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Unit tests
+        run: bun run test
+
+      - name: Build
+        run: bun run build
+
+      - name: Install the browser the journeys drive
+        run: bunx playwright install --with-deps chromium
+
+      - name: Operator journeys
+        env:
+          PLAYWRIGHT_CHANNEL: chromium
+        run: bun run test:e2e
+
+  docker-smoke:
+    name: Docker smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Build and run lightweight smoke profile
+        run: docker compose -f .github/docker-compose.smoke.yaml up --build --abort-on-container-exit --exit-code-from flakegraph flakegraph
+
+      - name: Tear down smoke profile
+        if: always()
+        run: docker compose -f .github/docker-compose.smoke.yaml down --volumes --remove-orphans
+
+  spark-image:
+    name: Spark image build and smoke
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          github.event_name == 'push' ||
+          contains(github.event.pull_request.labels.*.name, 'ci:spark-image') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Build Spark image
+        run: docker build --file Dockerfile.spark --tag flakegraph-spark:ci .
+
+      - name: Smoke Spark image
+        run: |
+          docker run --rm --entrypoint /opt/venv/bin/python flakegraph-spark:ci -c \
+            "import graphframes, kg_processor, pyspark, sentence_transformers"
+          docker run --rm --entrypoint /opt/spark/bin/spark-submit flakegraph-spark:ci --version

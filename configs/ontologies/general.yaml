@@ -1,0 +1,42 @@
+name: general
+description: General-purpose profile for evidence-grounded document graphs.
+mode: hybrid
+entity_types:
+  - name: PERSON
+    description: A named human being.
+  - name: ORGANIZATION
+    description: A named company, institution, association, team, or formal group.
+  - name: LOCATION
+    description: A named geographic place, site, region, country, or facility.
+  - name: EVENT
+    description: A named occurrence, competition, conflict, meeting, or historical event.
+  - name: CONCEPT
+    description: A named idea, discipline, method, theory, or abstract subject.
+  - name: WORK
+    description: A named book, article, law, artwork, product, or other authored artifact.
+  - name: DATE
+    description: A date, year, era, or bounded time period relevant to a claim.
+relation_types:
+  - name: RELATED_TO
+    description: A directly stated relationship that does not fit a more specific predicate.
+    aliases: [associated_with, connected_to]
+  - name: PART_OF
+    description: The source is explicitly described as a component or member of the target.
+    aliases: [belongs_to, member_of]
+  - name: LOCATED_IN
+    description: The source is explicitly situated in the target location.
+    target_types: [LOCATION]
+    aliases: [based_in, situated_in]
+  - name: CREATED_BY
+    description: The source work, concept, or organization was explicitly created or founded by the target person or organization.
+    source_types: [ORGANIZATION, CONCEPT, WORK]
+    target_types: [PERSON, ORGANIZATION]
+    aliases: [founded_by, authored_by, developed_by]
+  - name: INFLUENCED_BY
+    description: The source is explicitly stated to have been influenced by the target.
+    aliases: [inspired_by]
+  - name: OCCURRED_AT
+    description: The source event explicitly occurred at the target location or date.
+    source_types: [EVENT]
+    target_types: [LOCATION, DATE]
+    aliases: [occurred_in, took_place_at]

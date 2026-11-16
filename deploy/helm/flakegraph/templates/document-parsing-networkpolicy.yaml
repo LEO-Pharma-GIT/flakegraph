@@ -1,0 +1,29 @@
+{{- if and .Values.documentParsing.enabled .Values.documentParsing.mineru.networkPolicy.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "flakegraph.mineruName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: document-parsing
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "flakegraph.selectorLabels" (dict "root" . "component" "document-parsing") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    # The shim is the only thing that may reach the pool. It holds the key
+    # check and the queue; MinerU itself authenticates nobody and answers 409
+    # to whatever reaches it past the shim's admission.
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "flakegraph.selectorLabels" (dict "root" . "component" "ocr-shim") | nindent 14 }}
+      ports:
+        - port: http
+          protocol: TCP
+    {{- with .Values.documentParsing.mineru.networkPolicy.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

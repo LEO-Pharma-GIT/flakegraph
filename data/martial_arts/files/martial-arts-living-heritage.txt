@@ -1,0 +1,50 @@
+Martial Practice as Living Heritage
+Community transmission, recognition, and regional difference
+
+What recognition records
+
+UNESCO's Representative List concerns living cultural practices and the communities that transmit them. Inscription is not a world championship, a technical ranking, or a declaration that one version is original. Recognition directs attention to knowledge, participation, memory, and safeguarding. This corpus therefore links named practices to UNESCO while keeping sport federations and Olympic recognition in separate predicates.
+
+The shared UNESCO node connects Korea, Indonesia, and Brazil without flattening their histories. It offers a route across the graph based on cultural policy rather than combat effectiveness. The observed years are included only where the official entries clearly identify them. Context avoids claiming that inscription froze the arts or transferred authority away from practitioners.
+
+Taekkyeon was recognized by UNESCO through inscription on the Representative List in 2011.
+
+Ssireum was recognized by UNESCO through a joint Korean inscription on the Representative List in 2018.
+
+The traditions of Pencak Silat were recognized by UNESCO through inscription on the Representative List in 2019.
+
+The capoeira roda was recognized by UNESCO through inscription on the Representative List in 2014.
+
+Taekkyeon and rhythmic movement
+
+Taekkyeon combines fluid stepping with attacks, evasions, and trips. Its Korean practice is transmitted through people and organizations rather than recovered from a single ancient manual. The art's visible rhythm distinguishes its performance, while the use of the feet provides a technical bridge to taekwondo and other kicking systems in the graph.
+
+That bridge should not be mistaken for a direct-lineage assertion. Taekkyeon and taekwondo have different modern institutions, rules, and historical debates. Connecting both to kicking and the Republic of Korea supports comparison at the level established by evidence. It does not declare that one complete system descended unchanged into the other.
+
+Taekkyeon is practiced in the Republic of Korea as a transmitted community art and daily activity.
+
+Taekkyeon uses kicking within fluid rhythms that also support trips, evasions, and changes of level.
+
+Ssireum and community wrestling
+
+Ssireum begins from a distinctive belt grip and seeks to bring an opponent to the ground. Festivals, holidays, local contests, schools, and modern events have all provided settings for practice. The broad wrestling node connects ssireum to MMA's takedown concerns without suggesting that the two share one curriculum or direct historical path.
+
+The 2018 UNESCO inscription was notable because it joined nominations associated with both Korean states. This corpus keeps one conservative Republic of Korea practice relation because that location is already central to the connected graph. The recognition sentence nevertheless describes the inscription as joint, preserving the interstate character of the official heritage action.
+
+Ssireum is practiced in the Republic of Korea at festivals, community contests, and organized sporting events.
+
+Ssireum uses wrestling from a belt grip to unbalance and bring an opponent to the ground.
+
+Indonesian and Brazilian circles of transmission
+
+Pencak Silat names a diverse field of Indonesian traditions with regional forms, social customs, performance, self-defense, sport, and sometimes weapons. A single technical edge cannot summarize that diversity. The striking relation provides a modest point of comparison, while the place and recognition relations preserve the cultural setting emphasized by the heritage record.
+
+Capoeira's roda makes the social form especially visible. Players enter a circle sustained by music, observation, ritual knowledge, and responsive movement. Recognizing the roda rather than an abstract list of kicks captures where transmission happens. Brazil, UNESCO, and the practice node together connect capoeira's technical and cultural dimensions without reducing either to the other.
+
+Pencak Silat is practiced in Indonesia through varied regional schools, performances, and community traditions.
+
+Pencak Silat uses striking within broader systems that may also include grappling, weapons, and artistic presentation.
+
+Capoeira is practiced in Brazil as a fight, game, dance, musical gathering, and social tradition.
+
+Capoeira includes the roda as the circle where players exchange movements within music and ritual.

@@ -1,0 +1,80 @@
+{{- if .Values.autoscaling.enabled }}
+{{- include "flakegraph.requireApi" (dict "root" . "api" "keda.sh/v1alpha1/ScaledObject" "feature" "autoscaling.enabled" "install" "the KEDA operator, https://keda.sh") }}
+{{- $root := . -}}
+{{- range $poolName, $pool := .Values.workers }}
+{{- if $pool.enabled }}
+{{- $maxReplicas := include "flakegraph.workerMaxReplicas" (dict "root" $root "name" $poolName "pool" $pool) | int }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "flakegraph.fullname" $root }}-{{ $poolName }}
+  labels:
+    {{- include "flakegraph.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: worker-{{ $poolName }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "flakegraph.fullname" $root }}-{{ $poolName }}
+    envSourceContainerName: worker
+  pollingInterval: {{ $root.Values.autoscaling.pollingIntervalSeconds }}
+  cooldownPeriod: {{ $root.Values.autoscaling.cooldownPeriodSeconds }}
+  minReplicaCount: {{ $pool.autoscaling.minReplicas }}
+  maxReplicaCount: {{ $maxReplicas }}
+  fallback:
+    failureThreshold: {{ $root.Values.autoscaling.fallback.failureThreshold }}
+    replicas: {{ $root.Values.autoscaling.fallback.replicas }}
+    behavior: {{ $root.Values.autoscaling.fallback.behavior }}
+  advanced:
+    restoreToOriginalReplicaCount: true
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: {{ $root.Values.autoscaling.scaleUp.stabilizationWindowSeconds }}
+          selectPolicy: Max
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: {{ $root.Values.autoscaling.scaleUp.periodSeconds }}
+            - type: Pods
+              value: {{ $root.Values.autoscaling.scaleUp.podsPerPeriod }}
+              periodSeconds: {{ $root.Values.autoscaling.scaleUp.periodSeconds }}
+        scaleDown:
+          stabilizationWindowSeconds: {{ $root.Values.autoscaling.scaleDown.stabilizationWindowSeconds }}
+          selectPolicy: Max
+          policies:
+            - type: Percent
+              value: {{ $root.Values.autoscaling.scaleDown.percentPerPeriod }}
+              periodSeconds: {{ $root.Values.autoscaling.scaleDown.periodSeconds }}
+  # Both priority bands use this pool. Sum demand before dividing by slots so
+  # urgent arrivals can add capacity even while bulk tasks occupy existing pods.
+  # Task claiming still gives interactive work priority.
+  triggers:
+    - type: postgresql
+      name: {{ printf "%s-total" $poolName }}
+      metricType: AverageValue
+      metadata:
+        {{- if $root.Values.database.cloudNativePG.enabled }}
+        host: {{ printf "%s-rw.%s.svc.cluster.local" $root.Values.database.cloudNativePG.clusterName $root.Release.Namespace | quote }}
+        port: "5432"
+        dbName: {{ $root.Values.database.cloudNativePG.database | quote }}
+        userName: {{ $root.Values.database.cloudNativePG.owner | quote }}
+        passwordFromEnv: KG_DISTRIBUTED_DATABASE_PASSWORD
+        sslmode: require
+        {{- else }}
+        connectionFromEnv: KG_DISTRIBUTED_DATABASE_URL
+        {{- end }}
+        query: >-
+          SELECT COALESCE(SUM(LEAST(
+            desired_workers,
+            {{ mul $maxReplicas $pool.slots }}
+          )), 0)
+          FROM flakegraph_worker_demand
+          WHERE stage IN (
+              {{- range $index, $stage := $pool.stages }}{{ if $index }}, {{ end }}'{{ $stage }}'{{- end }}
+          )
+        targetQueryValue: {{ $pool.slots | quote }}
+{{- end }}
+{{- end }}
+{{- end }}

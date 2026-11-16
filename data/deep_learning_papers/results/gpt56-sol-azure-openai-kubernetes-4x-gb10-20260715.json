@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "result_id": "dlp-v1-gpt56-sol-azure-openai-k8s-4x-gb10-20260715",
+  "status": "partial",
+  "status_reason": "One complete uncached run was measured; repeated runs are still required for stability statistics.",
+  "measured_at_utc": "2026-07-15T06:41:55Z",
+  "dataset": {
+    "id": "famous-deep-learning-papers-v1",
+    "version": "1.0.0",
+    "gold_path": "data/deep_learning_papers/gold.json",
+    "gold_sha256": "a5c981b82955ebdb3beb8903a00e5600e8726d074c95bcb3a925a343bbf21135",
+    "document_count": 49,
+    "expected_entity_count": 657,
+    "expected_relation_count": 742,
+    "evidence_observation_count": 742
+  },
+  "configuration": {
+    "sha256": "7af3314d26dc2de0c50561a9d270490a895d1c42be9efb02256f9b0f993f89a9",
+    "ontology_path": "data/deep_learning_papers/ontology.yaml",
+    "ontology_sha256": "56e354ff12c85ea3c9e1ba9f6f08bba4df21732cfe6bee88bba58c38f265fac7"
+  },
+  "models": {
+    "llm": {
+      "provider": "azure_openai",
+      "name": "gpt-5.6-sol"
+    },
+    "embedding": {
+      "provider": "sentence_transformers",
+      "name": "sentence-transformers/all-MiniLM-L6-v2",
+      "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+      "dimension": 384
+    }
+  },
+  "runtime": {
+    "execution": "Kubernetes",
+    "serving_software": "Azure OpenAI",
+    "spark_version": "4.1.2",
+    "graphframes_version": "0.12.1",
+    "ocr_policy": "fallback",
+    "ocr_documents": {
+      "builtin_text": 43,
+      "mineru_internal": 6
+    }
+  },
+  "hardware": {
+    "processing_nodes": 4,
+    "accelerator": "NVIDIA GB10",
+    "unified_memory_gib_per_node": 128,
+    "llm_provider_hardware": "managed",
+    "spark_executors": 4,
+    "spark_executor_cores": 4
+  },
+  "protocol": {
+    "run_id": "dlp-gpt56-v30-20260715",
+    "completed_repeats": 1,
+    "cache_disabled": true,
+    "document_context_tasks": 49,
+    "entity_window_tasks": 479,
+    "relation_window_tasks": 479,
+    "failed_task_attempts": 0
+  },
+  "measurements": {
+    "timing_seconds": {
+      "pre_finalization_and_handoff": 2161.246937,
+      "spark_finalization": 793.434067,
+      "end_to_end": 2954.681004
+    },
+    "throughput_documents_per_minute": 0.995,
+    "output": {
+      "documents": 49,
+      "pages": 866,
+      "chunks": 1380,
+      "entities": 22466,
+      "relations": 11164,
+      "evidence_records": 42534,
+      "communities": 1428
+    },
+    "quality": {
+      "acceptance_thresholds_met": false,
+      "hard_quality_error_count": 0,
+      "entity_precision": 1.0,
+      "entity_recall": 0.9376,
+      "entity_f1": 0.9678,
+      "triple_precision": 1.0,
+      "triple_recall": 0.6725,
+      "triple_f1": 0.8042,
+      "evidence_support_rate": 0.5674,
+      "information_retention": 0.8051,
+      "two_hop_recoverability": 0.7978,
+      "component_count": 14243,
+      "isolate_ratio": 0.6153,
+      "unscored_entities": 21637,
+      "unscored_relations": 10544
+    },
+    "finalization_phase_seconds": {
+      "identity_resolution": 182.749086,
+      "community_reporting": 374.299411,
+      "description_merge": 114.381918
+    },
+    "stability": {
+      "pair_count": 0,
+      "mean_node_jaccard": null,
+      "mean_triple_jaccard": null
+    }
+  }
+}

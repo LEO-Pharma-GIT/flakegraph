@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "status": "measured",
+  "status_reason": "3 complete uncached runs, scored with the pipeline's evaluator against the exhaustive gold; quality is their mean and stability their pairwise overlap.",
+  "result_id": "adt-v1.1-gpt6-astra-azure-openai-local-3x-20260925",
+  "measured_at_utc": "2026-09-25T08:07:31Z",
+  "dataset": {
+    "id": "atopic-dermatitis-treatment-v1",
+    "version": "1.1.0",
+    "license": "CC0-1.0",
+    "gold_path": "data/atopic_dermatitis/gold.json",
+    "gold_sha256": "b081f5737eca6b7077c6bb3281ce08686da0affd878e12b2bacc4877f48cd7c8",
+    "manifest_path": "data/atopic_dermatitis/manifest.jsonl",
+    "manifest_sha256": "3dde24d3dc7261c2bb762563c74979afb886d669d3e3b1ceb1d52a6b640f950e",
+    "document_count": 50,
+    "expected_entity_count": 3462,
+    "expected_relation_count": 5762,
+    "evidence_observation_count": 7857
+  },
+  "configuration": {
+    "path": null,
+    "sha256": "e867c3a7335ac08a5e85bfc49a9b261187aad4c43c62152790a28d1c5d0ea821",
+    "ontology_path": "data/atopic_dermatitis/ontology.yaml",
+    "ontology_sha256": "c115344f1f2d6cbd9476e1ab18d4d48f146975c2943ceadee22ec9fb8e2a20cc"
+  },
+  "models": {
+    "llm": {
+      "name": "gpt-6-astra",
+      "provider": "azure_openai"
+    },
+    "embedding": {
+      "name": "Qwen/Qwen3-Embedding-0.6B",
+      "provider": "sentence_transformers",
+      "dimension": 1024
+    }
+  },
+  "runtime": {
+    "execution": "Local (single process per run, three runs in parallel)",
+    "serving_software": "Azure OpenAI",
+    "inference_path": "Azure OpenAI deployment, default reasoning",
+    "ocr_provider": "builtin_text"
+  },
+  "protocol": {
+    "requested_repeats": 3,
+    "completed_repeats": 3,
+    "run_ids": [
+      "atopic-astra-v2",
+      "atopic-astra-v3",
+      "atopic-astra-v4"
+    ],
+    "cache_disabled": true,
+    "failed_task_attempts": 0
+  },
+  "measurements": {
+    "accepted_run_count": 0,
+    "quality": {
+      "aggregation": "mean",
+      "acceptance_thresholds_met": false,
+      "failed_gates": [
+        "entity_precision"
+      ],
+      "component_count": null,
+      "entity_precision": 0.684,
+      "entity_recall": 0.7983,
+      "entity_f1": 0.7367,
+      "triple_precision": 0.6553,
+      "triple_recall": 0.5658,
+      "triple_f1": 0.6073,
+      "evidence_support_rate": 0.5314,
+      "information_retention": 0.6821,
+      "isolate_ratio": 0.5188,
+      "two_hop_recoverability": 0.6809,
+      "output_entities": 4212.6667,
+      "output_relations": 4975.3333
+    },
+    "timing_seconds": {
+      "mean": 5745.0
+    },
+    "extraction_documents_per_minute": 0.522,
+    "stability": {
+      "pair_count": 3,
+      "mean_node_jaccard": 0.7629,
+      "minimum_node_jaccard": 0.7545,
+      "mean_triple_jaccard": 0.4785,
+      "minimum_triple_jaccard": 0.4709
+    }
+  }
+}

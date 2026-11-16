@@ -1,0 +1,300 @@
+# Reference profile: a bare-metal fleet of NVIDIA DGX Spark (GB10) nodes on k3s.
+#
+# This example profile supplies the hardware-specific settings for a fleet
+# of unified-memory arm64 GPU nodes: a Blackwell-only NVFP4 checkpoint,
+# the arm64 engine image, a measured
+# speculative drafter, GB10 memory sizing, the k3s `nvidia` RuntimeClass, the
+# node-class labels deploy/spark/bootstrap-node.sh applies, Traefik (k3s's
+# bundled ingress controller), and a kube-prometheus-stack release in the
+# application namespace (deploy/spark/install-cluster.sh installs one).
+#
+# Copy it to deploy/private/ before adding site-specific registries, storage
+# classes, endpoint names, or Secret references. See
+# docs/reference-dgx-spark-fleet.md for the bring-up it belongs to.
+image:
+  repository: registry.example.com/flakegraph
+  tag: "0.1.0"
+
+database:
+  secretName: flakegraph-postgres-app
+  cloudNativePG:
+    enabled: true
+    clusterName: flakegraph-postgres
+    instances: 3
+    storage:
+      # Suitable starting point for corpus-scale runs. Measure the first run and
+      # expand the volume before free space falls below the documented headroom.
+      size: 100Gi
+
+providerSecret:
+  name: flakegraph-providers
+  optional: true
+  # Only credential keys cross the Secret boundary. Provider endpoints and
+  # model names remain visible and reviewable in the mounted FlakeGraph config.
+  env:
+    - name: KG_LLM_API_KEY
+      key: KG_LLM_API_KEY
+      optional: true
+    - name: KG_EMBED_API_KEY
+      key: KG_EMBED_API_KEY
+      optional: true
+
+# Use a managed S3-compatible service in production, or a separately operated
+# in-cluster object store (install-cluster.sh brings up a single-node MinIO).
+# PostgreSQL stores metadata; payload bytes and Parquet graph tables move
+# directly through this endpoint.
+artifactStorage:
+  uri: s3://flakegraph-artifacts
+  endpointUrl: https://object-storage.example.com
+  existingSecret: flakegraph-artifacts
+
+spark:
+  enabled: true
+  image:
+    repository: registry.example.com/flakegraph-spark
+    tag: "0.1.0"
+  executorInstances: 4
+  executorCores: 4
+  executorMemory: 8g
+  executorMemoryOverhead: 8g
+  # Two calls per executor core: 16 slots x 2 = 32, the sequences four engines
+  # of maxNumSeqs 8 run at once.
+  providerConcurrency: 32
+  nodeSelector:
+    flakegraph.io/node-class: nvidia-spark
+
+# Queue-driven scaling: install-cluster.sh installs KEDA.
+autoscaling:
+  enabled: true
+
+# Run one pinned engine on each GPU node, each behind its own authenticating
+# sidecar. Consumers never address these directly: they resolve the gateway, and
+# the endpoint picker decides which replica serves each request.
+modelServing:
+  enabled: true
+  replicas: 4
+  nodeSelector:
+    flakegraph.io/node-class: nvidia-spark
+  # k3s registers this RuntimeClass when it detects the NVIDIA container
+  # runtime; GPU pods have to name it to be handed the device.
+  runtimeClassName: nvidia
+  image:
+    repository: vllm/vllm-openai
+    tag: "v0.32.0"
+    # The linux/arm64 manifest of the tag, rather than the multi-arch index:
+    # every node here is arm64, and pinning the per-architecture manifest keeps
+    # a pull from resolving to a different build should a node's architecture
+    # be misreported. vLLM mainline, not NVIDIA's fork - the fork does not
+    # register the DFlash2 drafter below.
+    digest: sha256:6ff5ff0ddf3658d2c2d677dac5ca2d4726ce0156b4371166d918181b210bd4bc
+  model:
+    # NVFP4 needs Blackwell (SM100/SM120). On GB10: ~19 GB of weights,
+    # and decode bound by weight bandwidth, which is what the drafter exploits.
+    name: unsloth/Qwen3.8-27B-NVFP4
+    revision: 9e3d73c76eddb75f795cc24ccfbc5affe41c66bd
+  server:
+    # Not a share of a separate pool: on a unified-memory part the engine's
+    # allocation competes with the operating system, the kubelet, the workers
+    # and any Spark executor. Seven tenths starves sshd and the cluster API on
+    # GB10 hardware and takes the node off the network; half is the safe
+    # ceiling with the workers beside it.
+    gpuMemoryUtilization: 0.50
+    maxModelLen: 262144
+    maxNumBatchedTokens: 32768
+    # Halved from the figure the sizing block implies, because that block does
+    # not charge the vision encoder's reservation and this profile serves
+    # images. The sidecar's startup check remains the real guard.
+    maxNumSeqs: 8
+    # The checkpoint is quantized with compressed-tensors; NVIDIA's own NVFP4
+    # builds use "modelopt" instead, and naming the wrong one is a startup
+    # failure rather than a silent fallback.
+    quantization: compressed-tensors
+    kvCacheDtype: fp8
+    attentionBackend: flashinfer
+    moeBackend: marlin
+    # The checkpoint's own architecture code runs in the engine; read it before
+    # moving to another revision.
+    trustRemoteCode: true
+    reasoningParser: qwen3
+    toolCallParser: qwen3_xml
+    enableAutoToolChoice: true
+    # A vision-language checkpoint: images are served, and the encoder's memory
+    # is profiled and reserved for them. Video stays closed - nothing consumes
+    # it, and it would reserve considerably more.
+    limitMultimodalPerPrompt:
+      image: 2
+      video: 0
+    # DFlash2 proposes a block of eight tokens at a time. On one GB10, that
+    # decodes a code prompt at 46.1 tok/s against 27.2 for the
+    # checkpoint's own MTP head at four, and prose at 20.5 against 18.9; the
+    # gap is acceptance (0.59 of drafted tokens on code, 0.19 on prose).
+    speculativeTokens: 8
+    speculativeMethod: dflash
+    # A path, so something has to put it there: the seed image below carries
+    # the draft model, and an init container copies it into each replica's
+    # volume. Build that image with `COPY --chmod=644 <draft-dir> /dflash2`
+    # so the unprivileged engine user can read what it copies. Neither the
+    # drafter nor its image is published with this repository.
+    speculativeDraftModel: /models/dflash2
+    draftModelSeed:
+      image: your-registry.example/dflash2:3
+      sourcePath: /dflash2
+  # The engine reports "Model loading took 24.24 GiB": the target checkpoint
+  # and the resident DFlash2 drafter together (the target alone is 21.81). The
+  # checkpoint interleaves 16 full-attention layers with 48 linear-attention
+  # ones whose fixed recurrent state is paged beside the KV cache, charged per
+  # sequence with two slots each under prefix caching. 119.2 GiB is what the
+  # device reports of the node's 128 GiB of unified memory.
+  sizing:
+    kvHeads: 4
+    headDim: 256
+    attentionLayers: 16
+    recurrentLayers: 48
+    recurrentStateBytesPerLayer: 3207168
+    recurrentStateSlotsPerSequence: 2
+    weightsGiB: 24.24
+    deviceMemoryGiB: 119.2
+    overheadGiB: 12.0
+    expectedContextTokens: 32768
+  extraEnv:
+    # Atomic accumulation is faster for the Marlin MoE kernels on GB10.
+    - name: VLLM_MARLIN_USE_ATOMIC_ADD
+      value: "1"
+  # Host memory is the same pool as device memory here, so the limit is a
+  # share of the node rather than headroom beside a discrete card.
+  resources:
+    requests:
+      cpu: "2"
+      memory: 32Gi
+      nvidia.com/gpu: "1"
+    limits:
+      cpu: "8"
+      memory: 110Gi
+      nvidia.com/gpu: "1"
+
+# The router and the gateway are cheap next to an engine, so they sit on the
+# control-plane nodes and leave GPU nodes to inference and document parsing.
+gateway:
+  litellm:
+    # The root build, run with the security context it needs: the reference
+    # fleet runs this image. The chart's non-root default works where its
+    # first database migration has been verified on the node architecture.
+    image:
+      repository: ghcr.io/berriai/litellm
+      tag: "v1.106.2"
+      digest: sha256:7294b90f868c5c38c99b83021c7ba46f9b439e95f8e32964c925c7d2563a03f7
+    podSecurityContext:
+      runAsNonRoot: false
+      runAsUser: 0
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: false
+      capabilities:
+        drop: [ALL]
+    replicas: 2
+    autoscaling:
+      maxReplicas: 6
+  placement:
+    replicas: 2
+    autoscaling:
+      maxReplicas: 6
+
+documentParsing:
+  mineru:
+    replicas: 4
+    # The parser shares each GB10 with its engine, which already holds the
+    # node's one nvidia.com/gpu: no claim, the runtime class hands the device
+    # over, and the parser batches against the share of unified memory the
+    # engine leaves it.
+    device:
+      mode: cuda
+      claimGpu: false
+      runtimeClassName: nvidia
+      virtualVramGiB: 16
+    nodeSelector:
+      flakegraph.io/node-class: nvidia-spark
+  shim:
+    replicas: 2
+
+workers:
+  prepare:
+    # Preparation workers extract born-digital text themselves and hand scans
+    # to the parsing pool, so they are light; eight pods of two slots keep
+    # sixteen documents in flight, which keeps the pool fed.
+    replicas: 8
+    autoscaling:
+      maxReplicas: 8
+    nodeSelector:
+      flakegraph.io/node-class: nvidia-spark
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        matchLabelKeys:
+          - pod-template-hash
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/component: worker-prepare
+  extract:
+    # The ceiling is the chart's own: four replicas at eight sequences expose
+    # thirty-two, and at the default oversubscription of 1.5 six eight-slot
+    # pods hold forty-eight windows against them. Workers are not pinned to
+    # the engine beside them: the endpoint picker spreads the load, so a node
+    # whose own workers are idle still has its GPU fed.
+    replicas: 6
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        # During a rolling update, spread each ReplicaSet independently. Without
+        # this key, deleting the old revision after scheduling the new one can
+        # leave the final steady-state pool unevenly distributed.
+        matchLabelKeys:
+          - pod-template-hash
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/component: worker-extract
+  finalize:
+    replicas: 1
+    autoscaling:
+      maxReplicas: 1
+    # Every node bootstrap-node.sh joins carries this class unless told
+    # otherwise (--node-class), so the Spark driver lands anywhere in the
+    # fleet; a dedicated CPU pool would be labelled and named here instead.
+    nodeSelector:
+      flakegraph.io/node-class: nvidia-spark
+
+# k3s ships Traefik; the gate, edge compression and console machine keys are
+# expressed through its CRDs.
+ingress:
+  enabled: true
+  controller: traefik
+  className: traefik
+  domain: fleet.example.com
+  compression:
+    enabled: true
+  tls:
+    secretName: fleet-ingress-tls
+  authProxy:
+    enabled: true
+    existingSecret: flakegraph-auth-proxy
+    oidc:
+      issuerUrl: https://issuer.example.com/
+      clientId: replace-with-your-client-id
+
+controlPlane:
+  enabled: true
+  auth:
+    required: true
+  # Behind the gate the console trusts the identity headers; only Traefik in
+  # kube-system may reach it.
+  networkPolicy:
+    enabled: true
+
+# kube-prometheus-stack in the application namespace (install-cluster.sh), so
+# Grafana can sit behind the same Traefik middlewares as the console.
+monitoring:
+  enabled: true
+  release: monitoring

@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "result_id": "mah-v1-gpt56-sol-azure-openai-k8s-4x-gb10-20260715",
+  "status": "measured",
+  "status_reason": "Three complete uncached queue-backed repetitions succeeded without failed task attempts.",
+  "measured_at_utc": "2026-07-15T09:01:34.941Z",
+  "dataset": {
+    "id": "martial-arts-history-v1",
+    "version": "1.0.0",
+    "license": "CC0-1.0",
+    "manifest_path": "data/martial_arts/manifest.jsonl",
+    "manifest_sha256": "26966f45dda5ce8739650f3f0988dce4448e0cc882db248ee18d97e0b7e8f8c6",
+    "gold_path": "data/martial_arts/gold.json",
+    "gold_sha256": "3eb2939b844dce416d9bed00e335a782dfdae8581df32f819999f2f0d5d3a799",
+    "document_count": 10,
+    "expected_entity_count": 74,
+    "expected_relation_count": 104,
+    "evidence_observation_count": 109
+  },
+  "configuration": {
+    "sha256": "edf3c35d35fcb5280cf07f637dbf78e662cd6049cf7b8b4d12985b2f3d6b4398",
+    "config_digest": "d7edcf508698f11488eea10a7c3ec12e44e0b5675f089f0ed86a1ad4838ea695",
+    "ontology_path": "data/martial_arts/ontology.yaml",
+    "ontology_sha256": "16f73a1a66b45d09474bfbf52773a17b2f907efa9de77905d421c547ca4633f6",
+    "prompt_revision": "two-pass-extraction-v30"
+  },
+  "models": {
+    "llm": {
+      "provider": "azure_openai",
+      "name": "gpt-5.6-sol"
+    },
+    "embedding": {
+      "provider": "sentence_transformers",
+      "name": "sentence-transformers/all-MiniLM-L6-v2",
+      "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+      "dimension": 384
+    }
+  },
+  "runtime": {
+    "execution": "Kubernetes",
+    "serving_software": "Azure OpenAI",
+    "orchestrator": "k3s 1.36.1+k3s1",
+    "spark_version": "4.1.2",
+    "graphframes_version": "0.12.1",
+    "python_version": "3.14.5",
+    "ocr_provider": "builtin_text"
+  },
+  "hardware": {
+    "processing_nodes": 4,
+    "accelerator": "NVIDIA GB10",
+    "unified_memory_gib_per_node": 128,
+    "architecture": "arm64",
+    "cpu_control_nodes": 1,
+    "llm_provider_hardware": "managed"
+  },
+  "protocol": {
+    "run_ids": [
+      "martial-gpt56-v30-4x-measured1-20260715",
+      "martial-gpt56-v30-4x-measured2-20260715",
+      "martial-gpt56-v30-4x-measured3-20260715"
+    ],
+    "requested_repeats": 3,
+    "completed_repeats": 3,
+    "cache_disabled": true,
+    "prepare_workers": 10,
+    "extraction_workers": 12,
+    "spark_executors": 4,
+    "spark_executor_cores": 4,
+    "preparation_tasks": 10,
+    "document_context_tasks": 10,
+    "entity_window_tasks": 12,
+    "relation_window_tasks": 12,
+    "compaction_tasks": 20,
+    "finalization_tasks": 1,
+    "failed_task_attempts": 0,
+    "deterministic_seed": 17
+  },
+  "measurements": {
+    "accepted_run_count": 0,
+    "timing_seconds": {
+      "maximum": 280.312,
+      "mean": 240.173,
+      "median": 248.523,
+      "minimum": 191.684,
+      "runs": [280.312, 191.684, 248.523]
+    },
+    "stage_timing_seconds": {
+      "preparation_mean": 10.814,
+      "extraction_mean": 129.392,
+      "spark_finalization_mean": 99.966
+    },
+    "throughput_documents_per_minute": 2.562,
+    "output": {
+      "aggregation": "mean_across_repeats",
+      "documents": 10,
+      "chunks": 32,
+      "entities": 312.667,
+      "relations": 178,
+      "edge_observations": 200.667,
+      "evidence_records": 650,
+      "communities": 20.667
+    },
+    "quality": {
+      "acceptance_thresholds_met": false,
+      "component_count": 3.0,
+      "entity_precision": 1.0,
+      "entity_recall": 0.991,
+      "entity_f1": 0.9955,
+      "triple_precision": 0.9817,
+      "triple_recall": 0.9378,
+      "triple_f1": 0.9592,
+      "evidence_support_rate": 0.9194,
+      "information_retention": 0.9644,
+      "isolate_ratio": 0.0272,
+      "two_hop_recoverability": 0.9524
+    },
+    "stability": {
+      "pair_count": 3,
+      "mean_node_jaccard": 0.7794,
+      "minimum_node_jaccard": 0.7479,
+      "mean_triple_jaccard": 0.6556,
+      "minimum_triple_jaccard": 0.5938
+    }
+  }
+}

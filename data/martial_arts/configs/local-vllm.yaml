@@ -1,0 +1,52 @@
+runtime:
+  runtime: local
+job:
+  job_id: local-vllm
+  # Keep graph identity identical across benchmark environments because stable
+  # chunk IDs are included in extraction prompts.
+  graph_id: martial-arts-history-v1
+files:
+  source: local
+  input_path: data/martial_arts/files
+  include_globs:
+    # The quick-start corpus is intentionally text-native so a first run can
+    # exercise multiple document formats without downloading OCR model weights.
+    - "*.pdf"
+    - "*.docx"
+    - "*.pptx"
+    - "*.xlsx"
+    - "*.html"
+    - "*.htm"
+    - "*.txt"
+    - "*.md"
+    - "*.markdown"
+ocr:
+  # The bundled quick-start corpus is text-native, so use the built-in
+  # extractor to avoid making first-time users download OCR models before the
+  # graph pipeline has been proven locally. Use a MinerU config for scanned
+  # PDFs or image-heavy documents.
+  provider: builtin_text
+llm:
+  # vLLM exposes the same structured OpenAI chat contract locally and does not
+  # require a placeholder credential on a trusted loopback endpoint.
+  provider: vllm_local
+  endpoint: http://localhost:8000/v1
+  model: Qwen/Qwen3-8B
+embedding:
+  # The chat checkpoint is generative, not an embedding model. Keep vectors on
+  # the independent local provider so changing LLM runtimes never couples the
+  # graph schema to an inference server's unrelated model inventory.
+  provider: sentence_transformers
+  model: sentence-transformers/all-MiniLM-L6-v2
+  dimension: 384
+  batch_size: 32
+ontology:
+  # A reviewable vocabulary makes relation labels stable and prevents the
+  # model from inventing broad predicates for the bundled history corpus.
+  profile_path: data/martial_arts/ontology.yaml
+writer:
+  provider: local_artifacts
+  output_path: out/local-vllm
+cache:
+  provider: local
+  path: out/cache/local-vllm

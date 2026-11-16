@@ -1,0 +1,110 @@
+{{- if .Values.spark.enabled }}
+{{- if .Values.spark.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "flakegraph.sparkServiceAccountName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+automountServiceAccountToken: true
+---
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "flakegraph.sparkRbacName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "persistentvolumeclaims"]
+    # Spark deletes executor resources with the Kubernetes collection-delete
+    # endpoint during driver shutdown, so `deletecollection` is distinct from
+    # the ordinary single-resource `delete` permission.
+    verbs: ["get", "list", "watch", "create", "delete", "deletecollection", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "flakegraph.sparkRbacName" . }}
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "flakegraph.sparkServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "flakegraph.sparkRbacName" . }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "flakegraph.fullname" . }}-spark-executor-template
+  labels:
+    {{- include "flakegraph.labels" . | nindent 4 }}
+data:
+  executor-pod-template.yaml: |
+    apiVersion: v1
+    kind: Pod
+    spec:
+      restartPolicy: Never
+      securityContext:
+        {{- toYaml .Values.spark.executorPodSecurityContext | nindent 8 }}
+      {{- if .Values.scheduling.priorityClasses.enabled }}
+      priorityClassName: {{ include "flakegraph.sparkPriorityClassName" . }}
+      {{- end }}
+      {{- with .Values.spark.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            {{- if include "flakegraph.lanesEnabled" . }}
+            # Stay off a node whose engine is serving people. An executor's
+            # memory traffic beside a clear engine costs it up to a fifth of
+            # its speed, and far more alongside GPU work. Preferred,
+            # not required: when every engine is serving someone the job must
+            # still run, and it outweighs the spreading term below so a node
+            # doubling up on executors is chosen before a person's node.
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: {{ .Values.spark.topologyKey }}
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: model-serving
+                    flakegraph.io/lane: people
+            {{- end }}
+            # Prefer one executor per node for parallel throughput, but keep the
+            # job schedulable when a node is drained or a smaller fleet is used.
+            - weight: {{ ternary 50 100 (eq (include "flakegraph.lanesEnabled" .) "true") }}
+              podAffinityTerm:
+                topologyKey: {{ .Values.spark.topologyKey }}
+                labelSelector:
+                  matchLabels:
+                    spark-role: executor
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: spark-kubernetes-executor
+          securityContext:
+            {{- toYaml .Values.spark.executorContainerSecurityContext | nindent 12 }}
+          # Executors run the same application code as the workers and perform
+          # graph enrichment, so anything the workers were given to read — most
+          # often a model cache an air-gapped or filtered site must mount rather
+          # than download — has to reach them too. Without this an operator can
+          # mount a model for every pool and still watch finalization hang at the
+          # end of a long run, reaching for a network it cannot use.
+          {{- with .Values.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}
