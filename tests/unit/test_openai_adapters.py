@@ -95,7 +95,7 @@ def _vllm(url: str, headers: dict[str, str], payload: dict[str, Any]) -> httpx.R
     assert "Authorization" not in headers
     assert payload["model"] == "qwen2.5"
     assert payload["max_tokens"] == 16384
-    assert payload["chat_template_kwargs"] == {"enable_thinking": False}
+    assert payload["chat_template_kwargs"] == {"enable_thinking": False, "reasoning_effort": "none"}
     return _chat(_ENTITIES)
 
 
