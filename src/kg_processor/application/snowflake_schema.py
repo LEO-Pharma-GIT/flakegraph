@@ -7,7 +7,10 @@ import re
 
 _SCHEMA_INTROSPECTION_DIMENSION = 1536
 _CREATE_TABLE_RE = re.compile(
-    r"CREATE TABLE IF NOT EXISTS\s+(?P<table>[A-Z][A-Z0-9_]*)\s*\((?P<body>.*)\)\s*\Z",
+    # Table options may follow the column list: KG_CHUNK turns on change tracking,
+    # which the Cortex Search service over it follows publications by.
+    r"CREATE TABLE IF NOT EXISTS\s+(?P<table>[A-Z][A-Z0-9_]*)\s*\((?P<body>.*)\)"
+    r"(?:\s*[A-Z_]+\s*=\s*[A-Z0-9_]+)*\s*\Z",
     re.DOTALL,
 )
 _COLUMN_DEFINITION_RE = re.compile(r"^\s*(?P<column>[A-Z][A-Z0-9_]*)\s+(?P<type>[A-Z]+)")
@@ -154,7 +157,7 @@ CREATE TABLE IF NOT EXISTS KG_CHUNK (
   OCR_GENERATION_ID STRING,
   EMBEDDING VECTOR(FLOAT, {dim}),
   UPDATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
-);
+) CHANGE_TRACKING = TRUE;
 
 CREATE TABLE IF NOT EXISTS KG_NODE (
   ID STRING PRIMARY KEY,

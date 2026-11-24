@@ -180,6 +180,7 @@ def render_snowflake_setup_sql(
             f"GRANT CREATE STAGE ON SCHEMA {target_schema} TO ROLE {role}",
             f"GRANT CREATE IMAGE REPOSITORY ON SCHEMA {target_schema} TO ROLE {role}",
             f"GRANT CREATE SERVICE ON SCHEMA {target_schema} TO ROLE {role}",
+            f"GRANT CREATE CORTEX SEARCH SERVICE ON SCHEMA {target_schema} TO ROLE {role}",
             "GRANT SELECT, INSERT, UPDATE, DELETE "
             f"ON ALL TABLES IN SCHEMA {target_schema} TO ROLE {role}",
             "GRANT SELECT, INSERT, UPDATE, DELETE "
@@ -221,7 +222,7 @@ def render_snowflake_setup_sql(
 
     setup_sql = ";\n\n".join(statements) + ";"
     schema_sql = render_snowflake_schema_sql(settings.embedding.dimension).strip()
-    return f"{setup_sql}\n\n{schema_sql}"
+    return _with_search_service(f"{setup_sql}\n\n{schema_sql}", settings)
 
 
 def render_snowflake_objects_sql(settings: Settings) -> str:
@@ -243,7 +244,39 @@ def render_snowflake_objects_sql(settings: Settings) -> str:
     ]
     object_sql = ";\n\n".join(statements) + ";"
     schema_sql = render_snowflake_schema_sql(settings.embedding.dimension).strip()
-    return f"{object_sql}\n\n{schema_sql}"
+    return _with_search_service(f"{object_sql}\n\n{schema_sql}", settings)
+
+
+def cortex_search_service_sql(settings: Settings) -> list[str]:
+    """The statements that create the Cortex Search service Ask searches passages through.
+
+    One service per schema serves every graph: queries filter by GRAPH_ID, and
+    a reader's queries by DOCUMENT_ID. The service needs change tracking on the
+    chunk table to follow publications, and a warehouse to refresh on; without
+    a warehouse or a service name nothing is created.
+    """
+
+    service = settings.snowflake.cortex_search_service.strip()
+    if not service or not settings.snowflake.warehouse:
+        return []
+    name = _identifier(service, "Cortex Search service")
+    warehouse = _qualified_identifier(settings.snowflake.warehouse, "warehouse")
+    model = settings.snowflake.cortex_search_embedding_model.replace("'", "")
+    lag = settings.snowflake.cortex_search_target_lag.replace("'", "")
+    return [
+        f"CREATE CORTEX SEARCH SERVICE IF NOT EXISTS {name}\n"
+        "  ON CONTENT\n"
+        "  ATTRIBUTES GRAPH_ID, DOCUMENT_ID, FILE_ID\n"
+        f"  WAREHOUSE = {warehouse}\n"
+        f"  TARGET_LAG = '{lag}'\n"
+        f"  EMBEDDING_MODEL = '{model}'\n"
+        "  AS SELECT ID, CONTENT, GRAPH_ID, DOCUMENT_ID, FILE_ID FROM KG_CHUNK",
+    ]
+
+
+def _with_search_service(sql: str, settings: Settings) -> str:
+    statements = cortex_search_service_sql(settings)
+    return f"{sql}\n\n" + ";\n\n".join(statements) + ";" if statements else sql
 
 
 def render_snowflake_image_reference(settings: Settings) -> str:

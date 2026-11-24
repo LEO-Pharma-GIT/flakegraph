@@ -55,3 +55,23 @@ export function blockStructure(block: Record<string, unknown>): Record<string, u
   }
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
+
+/**
+ * A passage search by meaning that a runtime runs itself - Cortex Search over a
+ * graph's chunk table, inside Snowflake - in place of embedding the question
+ * and ranking chunk vectors in memory. It returns chunk ids, best first.
+ */
+export type ExternalSearch = (
+  query: string,
+  options: { limit: number; documentIds?: readonly string[]; abortSignal?: AbortSignal },
+) => Promise<string[]>;
+
+const externalSearches = new WeakMap<GraphDataset, ExternalSearch>();
+
+export function attachExternalSearch(dataset: GraphDataset, search: ExternalSearch): void {
+  externalSearches.set(dataset, search);
+}
+
+export function externalSearch(dataset: GraphDataset): ExternalSearch | undefined {
+  return externalSearches.get(dataset);
+}

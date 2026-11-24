@@ -107,6 +107,8 @@ export const Capability = Schema.Literal(
   "model_serving",
   "revise",
   "ask",
+  // Questions are answered as jobs the page polls: the ingress ends requests before an answer is done.
+  "ask_polled",
 );
 export type Capability = Schema.Schema.Type<typeof Capability>;
 

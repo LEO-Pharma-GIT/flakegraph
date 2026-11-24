@@ -2,6 +2,7 @@
 
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, isToolUIPart, type UIMessage } from "ai";
+import { polledAskFetch } from "@/lib/polled-ask-fetch";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { getRuntimeHeader } from "@/components/providers";
@@ -27,8 +28,11 @@ export function AskPanel({
   perspectives = [],
   graphQuestions = [],
   onOpenEntity,
+  polled = false,
 }: {
   runId: string;
+  /** Answer through a job the page polls, where the ingress cuts long requests short. */
+  polled?: boolean;
   perspectives?: Array<{ id: string; name: string; lifecycle: string; suggestedQuestions: string[] }>;
   /**
    * Questions the graph itself can answer, from its community reports (the
@@ -51,6 +55,7 @@ export function AskPanel({
     () =>
       new DefaultChatTransport({
         api: "/api/ask",
+        ...(polled ? { fetch: polledAskFetch } : {}),
         // The same runtime the rest of the console addresses: the one the
         // URL names, else the server's default, never a local fallback that
         // would read a fleet run's graph through the local runtime.
@@ -65,7 +70,7 @@ export function AskPanel({
           format: "ui",
         }),
       }),
-    [mode, perspectiveId, runId],
+    [mode, perspectiveId, polled, runId],
   );
   const { messages, sendMessage, status, stop, error, setMessages } = useChat<AskUIMessage>({
     id: `${runId}:${mode}:${perspectiveId}`,

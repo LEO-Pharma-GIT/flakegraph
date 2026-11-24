@@ -461,6 +461,7 @@ export function RunWorkspace({
             <TabsContent value="ask">
               <AskPanel
                 runId={runId}
+                polled={capabilities.has("ask_polled")}
                 perspectives={(workspace.data?.perspectives ?? []).filter(
                   (item) => item.graphId === snapshot.graphId && (operator || item.lifecycle === "production"),
                 )}
