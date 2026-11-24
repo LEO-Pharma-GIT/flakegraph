@@ -71,6 +71,7 @@ def test_local_artifacts_writer_keeps_document_and_page_schema_when_empty(tmp_pa
         "ocr_provider",
         "kind",
         "summary",
+        "card",
         "related_file_ids",
         "folder",
         "provenance",

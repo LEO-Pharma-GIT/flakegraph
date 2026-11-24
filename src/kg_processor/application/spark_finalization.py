@@ -208,7 +208,7 @@ _EMPTY_SCHEMAS = {
     "documents": (
         "id string, graph_id string, file_id string, checksum string, source_uri string, "
         "mime_type string, size_bytes long, ocr_provider string, kind string, summary string, "
-        "related_file_ids array<string>, folder string, provenance string"
+        "card string, related_file_ids array<string>, folder string, provenance string"
     ),
     "pages": (
         "id string, graph_id string, file_id string, page_number int, markdown string, "
@@ -321,7 +321,7 @@ _EDGE_OBSERVATION_QUANTITIES_TYPE = (
 _TRACE_SCHEMA = (
     "array<struct<stage:string, window_id:string, document_id:string, "
     "chunk_ids:array<string>, input_records:bigint, accepted_records:bigint, "
-    "supported_records:bigint, skipped:string, kind:string, summary:string, "
+    "supported_records:bigint, skipped:string, kind:string, summary:string, card_json:string, "
     "record_actions:map<string,bigint>, rejected_records:array<struct<kind:string, "
     "reason:string, name:string, type:string, source:string, source_type:string, "
     "target:string, target_type:string, quote:string, chunk_id:string>>>>"
@@ -2213,7 +2213,9 @@ class SparkGraphFinalizer:
             row.asDict()
             for row in extracted.select(F.explode_outer("observations.trace").alias("event"))
             .where(F.col("event.stage").isin(DATASET_PROFILE_STAGE, DOCUMENT_CARD_STAGE))
-            .select("event.stage", "event.document_id", "event.kind", "event.summary")
+            .select(
+                "event.stage", "event.document_id", "event.kind", "event.summary", "event.card_json"
+            )
             .collect()
         ]
         rows = [row.asDict(recursive=True) for row in documents.collect()]

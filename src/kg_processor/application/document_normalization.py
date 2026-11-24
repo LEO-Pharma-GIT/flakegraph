@@ -155,6 +155,7 @@ def document_row(
         # filled in once extraction has profiled it (content_kinds).
         "kind": content_kind(file.mime_type, file.source_uri),
         "summary": None,
+        "card": None,
         "related_file_ids": [],
         # The folder the file sits in, relative to the source root.
         "folder": location.rpartition("/")[0] if location is not None else None,

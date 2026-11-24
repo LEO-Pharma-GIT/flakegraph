@@ -57,6 +57,7 @@ _DOCUMENT_COLUMNS = [
     "ocr_provider",
     "kind",
     "summary",
+    "card",
     "related_file_ids",
     "folder",
     "provenance",

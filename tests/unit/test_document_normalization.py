@@ -69,6 +69,7 @@ def test_build_document_artifacts_maps_pages_blocks_assets_and_trace() -> None:
         "ocr_provider": "test_ocr",
         "kind": "document",
         "summary": None,
+        "card": None,
         "related_file_ids": [],
         "folder": None,
         "provenance": "extracted",

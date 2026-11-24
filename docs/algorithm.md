@@ -588,7 +588,11 @@ organizations it covers, its topics, how its information was produced, and up
 to twelve key findings that keep the document's numbers. A document that fits
 `graph.document_card_characters` is read whole; a longer one by every page's
 opening, so its later sections still reach the card. The card becomes the
-document's `summary`, one labelled line per field. A dataset keeps the summary
+document's `summary`, one labelled line per field. Its typed fields - the
+document's date, each organization with the part it plays, the groups its work
+sampled with their counts - are kept as a record (`documents.card`,
+`KG_DOCUMENT.CARD`), so questions about the documents themselves can be answered
+by filtering and counting. A dataset keeps the summary
 its profile wrote, and a card that cannot be written leaves the document
 without one.
 

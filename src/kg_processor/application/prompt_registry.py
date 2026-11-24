@@ -50,7 +50,7 @@ PROMPT_REVISIONS = {
     "community_report": "community-report-v2",
     "community_report_batch": "community-report-batch-v2",
     "figure_reading": "figure-reading-v1",
-    "document_card": "document-card-v1",
+    "document_card": "document-card-v2",
 }
 
 
