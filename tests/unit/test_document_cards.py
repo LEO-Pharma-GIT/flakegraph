@@ -151,3 +151,9 @@ def test_a_document_row_keeps_its_card_record_as_json() -> None:
     [row] = annotate_documents(rows, trace)
     assert json.loads(row["card"])["date"] == "2024"
     assert annotate_documents([{"file_id": "other"}], trace)[0]["card"] is None
+
+
+def test_a_card_that_says_nothing_is_no_record() -> None:
+    trace = [card_event("doc", DocumentCard())]
+
+    assert annotate_documents([{"file_id": "doc"}], trace)[0]["card"] is None

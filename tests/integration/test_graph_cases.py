@@ -67,6 +67,7 @@ def _run_fixture(
                 "chunk_token_size": fixture["settings"]["chunk_token_size"],
                 "chunk_token_overlap": fixture["settings"]["chunk_token_overlap"],
                 "gleaning_max_passes": 0,
+                "community_reports": True,
             },
             "writer": {"provider": "local_artifacts", "output_path": output_dir},
         }

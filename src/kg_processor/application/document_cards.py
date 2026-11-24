@@ -292,12 +292,16 @@ def document_card_summaries(trace: Iterable[Mapping[str, Any]]) -> dict[str, str
 
 
 def document_card_records(trace: Iterable[Mapping[str, Any]]) -> dict[str, str]:
-    """Each document's card record recorded in a trace, as JSON text, by document id."""
+    """Each document's card record recorded in a trace, as JSON text, by document id.
+
+    A card that says nothing - its summary is empty - is no record.
+    """
 
     return {
         str(event["document_id"]): str(event["card_json"])
         for event in trace
         if event.get("stage") == DOCUMENT_CARD_STAGE
         and event.get("document_id")
+        and event.get("summary")
         and event.get("card_json")
     }

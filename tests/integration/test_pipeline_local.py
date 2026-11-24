@@ -51,7 +51,12 @@ def test_pipeline_writes_local_artifacts(tmp_path: Path) -> None:
             "ocr": {"provider": "builtin_text"},
             "llm": {"provider": "fake", "model": "fake"},
             "embedding": {"provider": "hash", "dimension": 16},
-            "graph": {"chunk_token_size": 30, "chunk_token_overlap": 5, "gleaning_max_passes": 0},
+            "graph": {
+                "chunk_token_size": 30,
+                "chunk_token_overlap": 5,
+                "gleaning_max_passes": 0,
+                "community_reports": True,
+            },
             "writer": {"provider": "local_artifacts", "output_path": output_dir},
         }
     )
