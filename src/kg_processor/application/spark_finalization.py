@@ -4086,11 +4086,14 @@ def _summarize_community_partition(
 ) -> Any:
     """Generate each bounded community report in its executor partition."""
 
+    from kg_processor.application.community_reports import structural_community_summary
     from kg_processor.application.enrichment_batching import summarize_community_requests
     from kg_processor.ports.llm import CommunitySummaryRequest
 
     settings = Settings.model_validate(settings_payload)
-    llm = _executor_enrichment_llm_provider(settings)
+    write_reports = settings.graph.community_reports
+    # Without narrative reports a community is described from its structure, and no model is called.
+    llm = _executor_enrichment_llm_provider(settings) if write_reports else None
 
     def summarize_batch(
         batch: Sequence[Any],
@@ -4106,12 +4109,16 @@ def _summarize_community_partition(
             )
             for row in batch
         ]
-        results = summarize_community_requests(
-            llm,
-            requests,
-            model=settings.llm.model,
-            timeout_seconds=settings.llm.timeout_seconds,
-            seed=settings.graph.deterministic_seed,
+        results = (
+            summarize_community_requests(
+                llm,
+                requests,
+                model=settings.llm.model,
+                timeout_seconds=settings.llm.timeout_seconds,
+                seed=settings.graph.deterministic_seed,
+            )
+            if llm is not None
+            else [structural_community_summary(request) for request in requests]
         )
         return [
             (

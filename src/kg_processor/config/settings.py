@@ -626,6 +626,14 @@ class GraphSettings(_SettingsModel):
     community_algorithm: Literal["louvain", "leiden"] = "louvain"
     community_resolution: float = Field(default=1.0, gt=0)
     community_co_mention_weight: float = Field(default=0.05, gt=0)
+    # Whether a language model writes each community's title, summary, findings
+    # and questions. Off, a community is titled and described from its members
+    # and links alone, at no model cost: the reports are one of the slowest
+    # finalization phases, grow with the graph, are redone as communities
+    # shift, and measured on detail questions they lose to reading the
+    # documents themselves (and to the documents' own cards for questions about
+    # the documents). Turn it on for graphs explored mainly by broad themes.
+    community_reports: bool = False
     # Provider batches finalization keeps in flight: identity adjudication,
     # description merges, community reports and, on Spark, embeddings. The
     # local finalizer runs this many at once. Spark divides it across its

@@ -405,6 +405,8 @@ def _concurrency_settings(concurrency: int, *, instances: int = 2, cores: int = 
             "graph": {
                 "finalization_provider_concurrency": concurrency,
                 "resolution_adjudication_batch_size": 4,
+                # The community phase is measured with its model calls on.
+                "community_reports": True,
             },
             "distributed": {
                 "spark_executor_instances": instances,

@@ -52,6 +52,7 @@ def detect_communities(
     timeout_seconds: int = DEFAULT_LLM_TIMEOUT_SECONDS,
     algorithm: CommunityAlgorithm = DEFAULT_COMMUNITY_ALGORITHM,
     structural_relation_types: frozenset[str] = frozenset(),
+    write_reports: bool = True,
 ) -> CommunityReportResult:
     """Detect deterministic weighted communities and generate grounded reports.
 
@@ -109,6 +110,7 @@ def detect_communities(
         model=model,
         timeout_seconds=timeout_seconds,
         seed=deterministic_seed,
+        write_reports=write_reports,
     )
 
 

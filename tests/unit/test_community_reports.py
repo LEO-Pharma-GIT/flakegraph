@@ -243,3 +243,51 @@ def _edge(
         source_file_id="file_1",
         source_chunk_ids=["chunk_1"],
     )
+
+
+def test_without_reports_a_community_is_described_from_its_structure_and_no_model_is_called() -> (
+    None
+):
+    nodes = [
+        _node("node_alice", "Alice Smith", "PERSON", degree=3),
+        _node("node_acme", "Acme Corp", "ORGANIZATION", degree=2),
+        _node("node_copenhagen", "Copenhagen", "LOCATION", degree=1),
+        _node("node_berlin", "Berlin", "LOCATION", degree=1),
+    ]
+    edges = [
+        _edge(
+            "edge_1",
+            "node_alice",
+            "node_acme",
+            "works_at",
+            "Alice Smith works at Acme Corp.",
+            weight=9.0,
+        ),
+        _edge(
+            "edge_2",
+            "node_acme",
+            "node_copenhagen",
+            "located_in",
+            "Acme Corp is in Copenhagen.",
+            weight=2.0,
+        ),
+    ]
+    provider = RecordingCommunityLlm()
+
+    result = generate_community_reports(
+        "graph",
+        [CommunitySeed(member_ids={"node_alice", "node_acme", "node_copenhagen", "node_berlin"})],
+        nodes,
+        edges,
+        provider,
+        write_reports=False,
+    )
+
+    assert provider.requests == []
+    [community] = result.communities
+    assert community.title == "Alice Smith, Acme Corp, Berlin and 1 more"
+    assert community.summary == (
+        "4 entities (2 LOCATION, 1 ORGANIZATION, 1 PERSON) linked by 2 relations. "
+        "Most connected: Alice Smith, Acme Corp, Berlin, Copenhagen."
+    )
+    assert result.findings == []
