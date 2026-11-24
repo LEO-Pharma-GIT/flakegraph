@@ -11,6 +11,7 @@ from kg_processor.application.document_cards import (
     card_event,
     card_outline,
     document_card_request,
+    document_card_schema,
     document_pages,
     render_card,
 )
@@ -103,3 +104,50 @@ def test_a_document_row_takes_its_card_and_a_dataset_keeps_its_profile() -> None
     annotated = {row["file_id"]: row for row in annotate_documents(rows, trace)}
     assert annotated["doc"]["summary"] == "Title: Report\nAbout: About things."
     assert annotated["sheet"]["summary"] == "Rows."
+
+
+def test_a_card_records_organizations_by_role_samples_and_its_own_date() -> None:
+    card = DocumentCard.model_validate(
+        {
+            "title": "Orchard yields 2025",
+            "date": "2025-10",
+            "period": "May to September 2025",
+            "organizations": [
+                {"name": "Field Lab", "role": "author"},
+                {"name": "Valley Growers", "role": "commissioner"},
+                {"name": "Seed Bank", "role": "source"},
+            ],
+            "samples": [
+                {"group": "orchard owners", "count": 12},
+                {"group": "plots", "count": None},
+            ],
+        }
+    )
+
+    assert render_card(card) == (
+        "Title: Orchard yields 2025\n"
+        "Date: 2025-10\n"
+        "Period: May to September 2025\n"
+        "Prepared by: Field Lab\n"
+        "Prepared for: Valley Growers\n"
+        "Sources cited: Seed Bank\n"
+        "Sample: orchard owners (12); plots"
+    )
+    event = card_event("doc", card)
+    assert json.loads(event["card_json"])["organizations"][2] == {
+        "name": "Seed Bank",
+        "role": "source",
+    }
+    roles = document_card_schema()["properties"]["organizations"]["items"]["properties"]["role"][
+        "enum"
+    ]
+    assert roles == ["author", "commissioner", "subject", "source", "other"]
+
+
+def test_a_document_row_keeps_its_card_record_as_json() -> None:
+    rows = [{"file_id": "doc", "kind": "document", "source_uri": "a/report.pdf"}]
+    trace = [card_event("doc", DocumentCard(title="Report", date="2024"))]
+
+    [row] = annotate_documents(rows, trace)
+    assert json.loads(row["card"])["date"] == "2024"
+    assert annotate_documents([{"file_id": "other"}], trace)[0]["card"] is None

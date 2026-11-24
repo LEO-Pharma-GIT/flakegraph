@@ -7,6 +7,7 @@ same row mapping and table column specs for production-sized loads.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping, Sequence, Set
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
@@ -67,6 +68,7 @@ TABLE_COLUMNS: dict[str, tuple[ColumnSpec, ...]] = {
         ColumnSpec("OCR_PROVIDER"),
         ColumnSpec("KIND"),
         ColumnSpec("SUMMARY"),
+        ColumnSpec("CARD", "variant"),
         ColumnSpec("RELATED_FILE_IDS", "array"),
         ColumnSpec("FOLDER"),
         ColumnSpec("PROVENANCE"),
@@ -735,6 +737,8 @@ def _document_row(graph_id: str, row: Mapping[str, object]) -> dict[str, object]
         "OCR_PROVIDER": row.get("ocr_provider"),
         "KIND": row.get("kind"),
         "SUMMARY": row.get("summary"),
+        # Kept as JSON text on the row; bound as the object it encodes.
+        "CARD": json.loads(card) if isinstance(card := row.get("card"), str) and card else None,
         "RELATED_FILE_IDS": row.get("related_file_ids"),
         "FOLDER": row.get("folder"),
         "PROVENANCE": row.get("provenance"),

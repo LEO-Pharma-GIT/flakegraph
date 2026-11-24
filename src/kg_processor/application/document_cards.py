@@ -4,9 +4,13 @@
 A graph answers questions about the things documents mention, but many
 questions are about the documents themselves: which ones cover a market, how
 many surveyed a population, what each concluded. A card per document answers
-those directly - title, type, subject, period, places, organizations, topics,
-method and key findings - written once from the document's own text and kept
-as the document's summary, where search and question answering can read it.
+those directly - title, type, subject, date, period, places, organizations and
+the part each played, topics, samples, method and key findings - written once
+from the document's own text. The card is kept twice on the document's row: as
+its summary text, where search and the readers see it, and as a record of typed
+fields, where a question can be answered by filtering and counting documents -
+which ones a given agency prepared, how many date from a year, which surveyed a
+group - rather than by reading every one.
 
 The card is written from the whole document when it fits the bound, and from
 every page's opening otherwise, so a long document's later sections still
@@ -17,7 +21,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -36,7 +40,38 @@ _MAX_FINDING_CHARACTERS = 400
 _MAX_LIST_ITEMS = 12
 _MAX_TOPICS = 10
 _MAX_FINDINGS = 12
-DOCUMENT_CARD_MAX_OUTPUT_TOKENS = 2048
+_MAX_SAMPLES = 12
+_MAX_DATE_CHARACTERS = 10
+DOCUMENT_CARD_MAX_OUTPUT_TOKENS = 2560
+
+OrganizationRole = Literal["author", "commissioner", "subject", "source", "other"]
+ORGANIZATION_ROLES: tuple[OrganizationRole, ...] = (
+    "author",
+    "commissioner",
+    "subject",
+    "source",
+    "other",
+)
+
+
+class CardOrganization(BaseModel):
+    """An organization the document names, and the part it plays in the document.
+
+    author - it prepared, wrote or produced the document; commissioner - the
+    document was made for it, or it paid for the work; subject - the document
+    discusses or evaluates it; source - the document cites it, or a work of
+    it, as where information came from; other - any other mention.
+    """
+
+    name: str
+    role: OrganizationRole = "other"
+
+
+class CardSample(BaseModel):
+    """A group the document's work studied, surveyed or interviewed, and how many as stated."""
+
+    group: str
+    count: int | None = None
 
 
 class DocumentCard(BaseModel):
@@ -45,10 +80,13 @@ class DocumentCard(BaseModel):
     title: str = ""
     document_type: str = ""
     about: str = ""
+    # When the document itself was written, issued or presented: YYYY, YYYY-MM or YYYY-MM-DD.
+    date: str = ""
     period: str = ""
     places: list[str] = Field(default_factory=list)
-    organizations: list[str] = Field(default_factory=list)
+    organizations: list[CardOrganization] = Field(default_factory=list)
     topics: list[str] = Field(default_factory=list)
+    samples: list[CardSample] = Field(default_factory=list)
     method: str = ""
     key_findings: list[str] = Field(default_factory=list)
 
@@ -144,20 +182,50 @@ def document_card_schema() -> dict[str, Any]:
     def items(limit: int, count: int) -> dict[str, Any]:
         return {"type": "array", "maxItems": count, "items": text(limit)}
 
+    def records(properties: dict[str, Any], count: int) -> dict[str, Any]:
+        return {
+            "type": "array",
+            "maxItems": count,
+            "items": {"type": "object", "properties": properties, "required": list(properties)},
+        }
+
     return {
         "type": "object",
         "properties": {
             "title": text(_MAX_TITLE_CHARACTERS),
             "document_type": text(_MAX_ITEM_CHARACTERS),
             "about": text(_MAX_FIELD_CHARACTERS),
+            "date": text(_MAX_DATE_CHARACTERS),
             "period": text(_MAX_ITEM_CHARACTERS),
             "places": items(_MAX_ITEM_CHARACTERS, _MAX_LIST_ITEMS),
-            "organizations": items(_MAX_ITEM_CHARACTERS, _MAX_LIST_ITEMS),
+            "organizations": records(
+                {
+                    "name": text(_MAX_ITEM_CHARACTERS),
+                    "role": {"type": "string", "enum": list(ORGANIZATION_ROLES)},
+                },
+                _MAX_LIST_ITEMS,
+            ),
             "topics": items(_MAX_ITEM_CHARACTERS, _MAX_TOPICS),
+            "samples": records(
+                {
+                    "group": text(_MAX_ITEM_CHARACTERS),
+                    "count": {"type": ["integer", "null"], "minimum": 0},
+                },
+                _MAX_SAMPLES,
+            ),
             "method": text(_MAX_FIELD_CHARACTERS),
             "key_findings": items(_MAX_FINDING_CHARACTERS, _MAX_FINDINGS),
         },
     }
+
+
+_ROLE_LABELS: tuple[tuple[OrganizationRole, str], ...] = (
+    ("author", "Prepared by"),
+    ("commissioner", "Prepared for"),
+    ("subject", "Organizations discussed"),
+    ("source", "Sources cited"),
+    ("other", "Other organizations"),
+)
 
 
 def render_card(card: DocumentCard) -> str:
@@ -176,10 +244,19 @@ def render_card(card: DocumentCard) -> str:
     line("Title", card.title)
     line("Type", card.document_type)
     line("About", card.about)
+    line("Date", card.date)
     line("Period", card.period)
     listed("Places", card.places)
-    listed("Organizations", card.organizations)
+    for role, label in _ROLE_LABELS:
+        listed(label, [item.name for item in card.organizations if item.role == role])
     listed("Topics", card.topics)
+    listed(
+        "Sample",
+        [
+            f"{item.group} ({item.count})" if item.count is not None else item.group
+            for item in card.samples
+        ],
+    )
     line("Method", card.method)
     findings = [" ".join(item.split()) for item in card.key_findings if item.strip()]
     if findings:
@@ -191,11 +268,14 @@ def render_card(card: DocumentCard) -> str:
 def card_event(document_id: str, card: DocumentCard) -> dict[str, Any]:
     """The trace event that carries a document's card to the document's row."""
 
+    record = card.model_dump(mode="json")
     return {
         "stage": DOCUMENT_CARD_STAGE,
         "document_id": document_id,
         "summary": render_card(card),
-        "card": card.model_dump(mode="json"),
+        "card": record,
+        # The same record as JSON text, the form a trace schema and a table column keep.
+        "card_json": json.dumps(record, ensure_ascii=False, sort_keys=True),
     }
 
 
@@ -208,4 +288,16 @@ def document_card_summaries(trace: Iterable[Mapping[str, Any]]) -> dict[str, str
         if event.get("stage") == DOCUMENT_CARD_STAGE
         and event.get("document_id")
         and event.get("summary")
+    }
+
+
+def document_card_records(trace: Iterable[Mapping[str, Any]]) -> dict[str, str]:
+    """Each document's card record recorded in a trace, as JSON text, by document id."""
+
+    return {
+        str(event["document_id"]): str(event["card_json"])
+        for event in trace
+        if event.get("stage") == DOCUMENT_CARD_STAGE
+        and event.get("document_id")
+        and event.get("card_json")
     }
