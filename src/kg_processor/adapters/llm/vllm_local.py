@@ -61,12 +61,14 @@ class VllmLocalLlmProvider(OpenAICompatibleLlmProvider):
     def _chat_request_overrides(self) -> dict[str, object]:
         """Disable free-form reasoning before strict JSON generation.
 
-        Qwen enables thinking in its chat template by default. vLLM exposes
-        that reasoning separately from ``message.content`` and counts it toward
-        the completion budget, so structured extraction can otherwise exhaust
-        its budget without producing a JSON object. The template switch is a
-        vLLM extension and therefore belongs in this adapter, not in prompts or
-        the provider-neutral completion request.
+        Reasoning models think by default, and vLLM exposes that reasoning
+        separately from ``message.content`` while counting it toward the
+        completion budget, so structured extraction can otherwise exhaust its
+        budget without producing a JSON object. Chat templates switch it off in
+        one of two ways - a flag (Qwen) or an effort (Inkling) - and ignore the
+        one they do not know. The template switch is a vLLM extension and
+        therefore belongs in this adapter, not in prompts or the
+        provider-neutral completion request.
         """
 
-        return {"chat_template_kwargs": {"enable_thinking": False}}
+        return {"chat_template_kwargs": {"enable_thinking": False, "reasoning_effort": "none"}}
