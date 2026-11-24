@@ -169,6 +169,36 @@ def test_slide_paragraphs_join_runs_and_keep_line_breaks(tmp_path: Path) -> None
     assert parse(path).pages[0].markdown == "Net growth\nsecond line\n7"
 
 
+@pytest.mark.parametrize(
+    ("runs", "expected"),
+    [
+        ([("118", False), ("2", True)], "118^2"),
+        ([("10", False), ("6", True), (" cells", False)], "10^6 cells"),
+        ([("n=40", False), ("1", True), ("2", True)], "n=40^12"),
+        ([("Ask", False), ("TM", True), (" 40", False)], "AskTM 40"),
+        ([("1", True), (" Excluding staff", False)], "1 Excluding staff"),
+        ([("H", False), ("2", False), ("O", False)], "H2O"),
+    ],
+)
+def test_office_runs_set_a_raised_number_off_from_what_it_follows(
+    tmp_path: Path, runs: list[tuple[str, bool]], expected: str
+) -> None:
+    slide = "".join(
+        f"<a:r><a:rPr{' baseline="30000"' if raised else ''}/><a:t>{text}</a:t></a:r>"
+        for text, raised in runs
+    )
+    write_pptx(tmp_path / "runs.pptx", [(sp(f"<a:p>{slide}</a:p>", x=0, y=0), [])])
+    align = '<w:vertAlign w:val="superscript"/>'
+    word = "".join(
+        f'<w:r><w:rPr>{align if raised else ""}</w:rPr><w:t xml:space="preserve">{text}</w:t></w:r>'
+        for text, raised in runs
+    )
+    write_docx(tmp_path / "runs.docx", f"<w:p>{word}</w:p>", {})
+
+    assert parse(tmp_path / "runs.pptx").pages[0].markdown == expected
+    assert parse(tmp_path / "runs.docx").pages[0].markdown == expected
+
+
 def test_placeholders_without_a_position_take_their_layouts(tmp_path: Path) -> None:
     layout = (
         f"<p:sldLayout {NS}><p:cSld><p:spTree>"
@@ -229,6 +259,93 @@ def test_slide_table_repeats_merged_cells_and_counts_its_header(tmp_path: Path) 
     assert page.markdown == "Intro\n\n" + render_table(table_data)
     assert document.provider_metadata["tables"] == 1
     assert_exact_offsets(page)
+
+
+def test_slide_labels_set_over_empty_table_cells_fill_them(tmp_path: Path) -> None:
+    def cell(text: str) -> str:
+        return f"<a:tc><a:txBody>{para(text) if text else '<a:p/>'}</a:txBody></a:tc>"
+
+    table = (
+        '<a:tbl><a:tblPr firstRow="1"/><a:tblGrid><a:gridCol w="400000"/><a:gridCol w="400000"/>'
+        '<a:gridCol w="400000"/></a:tblGrid>'
+        '<a:tr h="200000">' + cell("") + cell("") + cell("") + "</a:tr>"
+        '<a:tr h="200000">' + cell("Visits") + cell("10") + cell("12") + "</a:tr>"
+        "</a:tbl>"
+    )
+    frame = (
+        "<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id='4' name='t'/><p:cNvGraphicFramePr/>"
+        "<p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x='0' y='200000'/>"
+        "<a:ext cx='1200000' cy='400000'/>"
+        f"</p:xfrm><a:graphic><a:graphicData uri='{A}/table'>{table}</a:graphicData></a:graphic>"
+        "</p:graphicFrame>"
+    )
+    labels = (
+        sp(para("North"), x=450000, y=230000, name="a")
+        + sp(para("South"), x=850000, y=230000, name="b")
+        # Over a cell that has text of its own, and below the table: both stay text.
+        + sp(para("Overlay"), x=10000, y=430000, name="c")
+        + sp(para("Base: all sites"), x=0, y=900000, name="d")
+    )
+    path = tmp_path / "labels.pptx"
+    write_pptx(path, [(frame + labels, [])])
+
+    page = parse(path).pages[0]
+    block = next(block for block in page.blocks if block.kind == "table")
+    table_data = TableData.model_validate(block.metadata["table"])
+
+    assert table_data.rows == [["", "North", "South"], ["Visits", "10", "12"]]
+    assert page.markdown == render_table(table_data) + "\n\nOverlay\nBase: all sites"
+    assert_exact_offsets(page)
+
+
+def test_what_stands_on_a_slide_panel_is_read_with_it(tmp_path: Path) -> None:
+    def panel(x: int) -> str:
+        return (
+            "<p:sp><p:nvSpPr><p:cNvPr id='9' name='panel'/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>"
+            f"<p:spPr><a:xfrm><a:off x='{x}' y='0'/><a:ext cx='1000000' cy='2000000'/></a:xfrm>"
+            "</p:spPr></p:sp>"
+        )
+
+    labels = [("North", 100000, 0), ("South", 1300000, 0), ("40%", 100000, 900000)]
+    labels += [("55%", 1300000, 900000), ("of visits", 100000, 1500000)]
+    labels += [("of staff", 1300000, 1500000), ("Base: all", 100000, 2500000)]
+    boxes = "".join(sp(para(text), x=x, y=y) for text, x, y in labels)
+    panels = tmp_path / "panels.pptx"
+    write_pptx(panels, [(panel(0) + panel(1200000) + boxes, [])])
+    cell = "<a:tc><a:txBody><a:p/></a:txBody></a:tc>"
+    grid = (
+        "<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id='4' name='t'/><p:cNvGraphicFramePr/>"
+        "<p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x='0' y='0'/>"
+        "<a:ext cx='2400000' cy='2000000'/></p:xfrm><a:graphic>"
+        f"<a:graphicData uri='{A}/table'><a:tbl><a:tblGrid><a:gridCol w='1200000'/>"
+        f"<a:gridCol w='1200000'/></a:tblGrid><a:tr h='2000000'>{cell}{cell}</a:tr></a:tbl>"
+        "</a:graphicData></a:graphic></p:graphicFrame>"
+    )
+    cells = tmp_path / "cells.pptx"
+    write_pptx(cells, [(grid + boxes, [])])
+
+    expected = "North\n40%\nof visits\nSouth\n55%\nof staff\nBase: all"
+    assert parse(panels).pages[0].markdown == expected
+    assert parse(cells).pages[0].markdown == expected
+
+
+def test_a_slide_hidden_from_the_show_says_so(tmp_path: Path) -> None:
+    path = tmp_path / "hidden.pptx"
+    title = sp(para("Draft totals"), x=0, y=0, ph='<p:ph type="title"/>')
+    write_pptx(path, [(title + sp(para("40 sites"), x=0, y=900000), [])])
+    shown = parse(path).pages[0].markdown
+    hidden = tmp_path / "hidden_slide.pptx"
+    with zipfile.ZipFile(path) as source, zipfile.ZipFile(hidden, "w") as target:
+        for name in source.namelist():
+            part = source.read(name)
+            if name == "ppt/slides/slide1.xml":
+                part = part.replace(b"<p:sld ", b'<p:sld show="0" ', 1)
+            target.writestr(name, part)
+
+    assert shown == "# Draft totals\n40 sites"
+    assert parse(hidden).pages[0].markdown == (
+        "# Draft totals\n(Hidden slide: in the file but not shown.)\n40 sites"
+    )
 
 
 def test_slide_chart_notes_and_picture(tmp_path: Path) -> None:

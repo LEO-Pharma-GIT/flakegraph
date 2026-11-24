@@ -85,6 +85,8 @@ _UTF16_MIN_SNIFF_BYTES = 4
 _UTF32_ZERO_LANE_RATIO = 0.8
 _UTF16_ZERO_LANE_RATIO = 0.6
 _UTF16_NONZERO_LANE_RATIO = 0.2
+# A superscript written as a number: an exponent, or a footnote's mark.
+_RAISED_NUMBER_RE = re.compile(r"[+\-−]?\d+(?:[.,]\d+)*\s*")
 _CONTENT_CHARSET_RE = re.compile(r"\bcharset\s*=\s*([A-Za-z0-9._:-]+)", re.IGNORECASE)
 _TEXT_BOMS = (
     (codecs.BOM_UTF32_LE, "utf-32"),
@@ -1006,6 +1008,9 @@ _MASTER_PLACEHOLDER_KINDS = {
 # share an exact top, and a strict top-then-left sort would read the one a
 # hair higher first even when it stands to the right.
 _SAME_ROW_EMU = 137_160
+# A slide with more shapes than this is read without looking for which stands
+# on which, a comparison of every pair.
+_MAX_STACKED_ITEMS = 2_000
 # SmartArt data-model points that hold the diagram's own text.
 _SMARTART_TEXT_POINTS = frozenset({"", "node", "asst"})
 
@@ -1067,6 +1072,11 @@ class _Item:
     top: float | None
     left: float | None
     segments: list[_Segment]
+    # A shape's box (left, top, right, bottom); a table's column and row
+    # edges. Both in slide EMU, so what stands on a shape is read with it and
+    # a label set over a table finds its cell.
+    box: tuple[float, float, float, float] | None = None
+    edges: tuple[list[float], list[float]] | None = None
 
 
 @dataclass
@@ -1086,9 +1096,10 @@ def _pptx_slide_segments(
     """A slide's content in reading order, then its speaker notes.
 
     The title placeholder comes first as a level-one heading, so chunks of
-    the slide carry it as their section. The remaining shapes follow top to
-    bottom, then left to right (``_reading_order``); a group is read as one
-    unit at its own position, its shapes in the same order inside it.
+    the slide carry it as their section; a slide hidden from the show says so.
+    The remaining shapes follow top to bottom, then left to right
+    (``_reading_order``); a group is read as one unit at its own position, its
+    shapes in the same order inside it.
     """
 
     context = _SlideContext(package, member, page_number, _layout_placeholders(package, member))
@@ -1098,6 +1109,9 @@ def _pptx_slide_segments(
     title = " ".join(line for line in context.title if line)
     if title:
         segments.append(_Segment("lines", f"# {title}"))
+    if root.get("show") in {"0", "false"}:
+        # Often a draft or a backup the slides shown have replaced.
+        segments.append(_Segment("lines", "(Hidden slide: in the file but not shown.)"))
     for item in _reading_order(items):
         segments.extend(item.segments)
     notes = _pptx_notes(package, member)
@@ -1110,12 +1124,53 @@ def _pptx_slide_segments(
 def _reading_order(items: list[_Item]) -> list[_Item]:
     """Positioned items top to bottom, a row left to right; then the rest.
 
-    Items whose tops lie within ``_SAME_ROW_EMU`` of the first item of a row
-    are that row. A shape with no position of its own or from its layout is
-    read after every positioned one, in document order, since nothing says
-    where it stands.
+    What stands on another shape - a panel, a chart, a picture - is read with
+    it, so the labels of one of several panels side by side stay together
+    rather than being read straight across them. Items whose tops lie within
+    ``_SAME_ROW_EMU`` of the first item of a row are that row. A shape with no
+    position of its own or from its layout is read after every positioned one,
+    in document order, since nothing says where it stands.
     """
 
+    above = _standing_on(items)
+    held = {id(item) for group in above.values() for item in group}
+    return [
+        read
+        for item in _in_rows([item for item in items if id(item) not in held])
+        for read in (item, *_flattened(item, above))
+    ]
+
+
+def _flattened(item: _Item, above: dict[int, list[_Item]]) -> Iterator[_Item]:
+    """What stands on an item, and on that in turn, in reading order."""
+
+    for child in _in_rows(above.get(id(item), [])):
+        yield child
+        yield from _flattened(child, above)
+
+
+def _standing_on(items: list[_Item]) -> dict[int, list[_Item]]:
+    """The items on each item: those whose centre the smallest larger box holds."""
+
+    boxed = sorted(
+        ((item, item.box) for item in items if item.box is not None),
+        key=lambda entry: (entry[1][2] - entry[1][0]) * (entry[1][3] - entry[1][1]),
+    )
+    above: dict[int, list[_Item]] = {}
+    if len(boxed) > _MAX_STACKED_ITEMS:
+        return above
+    for at, (item, (left, top, right, bottom)) in enumerate(boxed):
+        x, y = (left + right) / 2, (top + bottom) / 2
+        area = (right - left) * (bottom - top)
+        for holder, box in boxed[at + 1 :]:
+            larger = (box[2] - box[0]) * (box[3] - box[1]) > area
+            if larger and box[0] <= x <= box[2] and box[1] <= y <= box[3]:
+                above.setdefault(id(holder), []).append(item)
+                break
+    return above
+
+
+def _in_rows(items: list[_Item]) -> list[_Item]:
     positioned = sorted(
         (item for item in items if item.top is not None),
         key=lambda item: (item.top or 0.0, item.left or 0.0),
@@ -1158,9 +1213,68 @@ def _shape_items(
             segments = [segment for child in _reading_order(children) for segment in child.segments]
             top, left = _position(node, transform, context)
             item = _Item(top, left, segments) if segments else None
-        if item is not None and item.segments:
-            items.append(item)
-    return items
+        if item is not None:
+            item.box = _box(node, transform, item.top, item.left)
+            if item.segments or item.box is not None:
+                items.append(item)
+            if item.edges is not None:
+                items.extend(_cell_items(*item.edges))
+    return _labels_into_tables(items)
+
+
+def _cell_items(columns: list[float], rows: list[float]) -> list[_Item]:
+    """A table's cells as places to stand on: a slide is often laid out by one."""
+
+    return [
+        _Item(top, left, [], box=(left, top, right, bottom))
+        for top, bottom in pairwise(rows)
+        for left, right in pairwise(columns)
+    ]
+
+
+def _labels_into_tables(items: list[_Item]) -> list[_Item]:
+    """Text boxes laid inside a table's empty cells, read as those cells.
+
+    A slide often labels a table's columns or rows with text boxes placed on
+    top of empty header cells rather than typed into them. Read in reading
+    order such a label comes after the table, which then has columns named by
+    nothing. A one-line text shape whose box lies within an empty cell is that
+    cell's text instead; a callout laid across several cells stays text.
+    """
+
+    tables = [item for item in items if item.edges is not None and item.segments]
+    if not tables:
+        return items
+    kept: list[_Item] = []
+    for item in items:
+        lines = len(item.segments) == 1 and item.segments[0].kind == "lines"
+        text = item.segments[0].text if lines else "\n"
+        box = item.box
+        if box is None or "\n" in text or not any(_fill_cell(table, box, text) for table in tables):
+            kept.append(item)
+    return kept
+
+
+def _fill_cell(table: _Item, box: tuple[float, float, float, float], text: str) -> bool:
+    """Write ``text`` into the empty cell of ``table`` that holds ``box``."""
+
+    columns, rows = table.edges or ([], [])
+    left, top, right, bottom = box
+    column = next(
+        (at for at in range(len(columns) - 1) if columns[at] <= left and right <= columns[at + 1]),
+        None,
+    )
+    row = next(
+        (at for at in range(len(rows) - 1) if rows[at] <= top and bottom <= rows[at + 1]), None
+    )
+    data = table.segments[0].table
+    if column is None or row is None or data is None or row >= len(data.rows):
+        return False
+    cells = data.rows[row]
+    if column >= len(cells) or cells[column].strip():
+        return False
+    cells[column] = text
+    return True
 
 
 def _alternate_content_items(
@@ -1186,14 +1300,18 @@ def _alternate_content_items(
 def _text_shape_item(node: Element, transform: _Transform, context: _SlideContext) -> _Item | None:
     body = _child_by_local_name(node, "txBody")
     lines = _drawing_text_lines(body) if body is not None else []
-    if not lines:
-        return None
     placeholder = _placeholder(node)
-    if placeholder is not None and placeholder[0] in _TITLE_PLACEHOLDERS and not context.title:
+    if (
+        lines
+        and placeholder is not None
+        and placeholder[0] in _TITLE_PLACEHOLDERS
+        and not context.title
+    ):
         context.title = lines
         return None
     top, left = _position(node, transform, context)
-    return _Item(top, left, [_Segment("lines", "\n".join(lines))])
+    # A shape without text may still be the panel that others stand on.
+    return _Item(top, left, [_Segment("lines", "\n".join(lines))] if lines else [])
 
 
 def _picture_item(node: Element, transform: _Transform, context: _SlideContext) -> _Item | None:
@@ -1218,7 +1336,46 @@ def _graphic_frame_item(
         context.package, context.member, context.page_number, data, transform, depth=depth
     )
     top, left = _position(node, transform, context)
-    return _Item(top, left, segments) if segments else None
+    table = next((child for child in data if _local_name(child.tag) == "tbl"), None)
+    edges = _table_edges(table, transform, top, left) if table is not None else None
+    return _Item(top, left, segments, edges=edges)
+
+
+def _box(
+    node: Element, transform: _Transform, top: float | None, left: float | None
+) -> tuple[float, float, float, float] | None:
+    """A shape's box in slide EMU, when it has its own position and extent."""
+
+    xfrm = _shape_xfrm(node)
+    extent = _xy(_child_by_local_name(xfrm, "ext"), "cx", "cy") if xfrm is not None else None
+    if extent is None or top is None or left is None:
+        return None
+    width, height = transform.size(*extent)
+    return left, top, left + width, top + height
+
+
+def _table_edges(
+    table: Element, transform: _Transform, top: float | None, left: float | None
+) -> tuple[list[float], list[float]] | None:
+    """A table's column and row edges in slide EMU, from its grid and row heights."""
+
+    if top is None or left is None:
+        return None
+    grid = _child_by_local_name(table, "tblGrid")
+    widths = (
+        [_int_attribute(column, "w", 0) for column in _children_by_local_name(grid, "gridCol")]
+        if grid is not None
+        else []
+    )
+    heights = [_int_attribute(row, "h", 0) for row in _children_by_local_name(table, "tr")]
+    if not widths or not heights:
+        return None
+    columns, rows = [left], [top]
+    for width in widths:
+        columns.append(columns[-1] + transform.scale_x * width)
+    for height in heights:
+        rows.append(rows[-1] + transform.scale_y * height)
+    return columns, rows
 
 
 def _graphic_data_segments(
@@ -1343,7 +1500,8 @@ def _drawing_paragraph_text(node: Element, *, depth: int) -> str:
     for child in node:
         name = _local_name(child.tag)
         if name in {"r", "fld"}:
-            parts.extend(text.text or "" for text in child if _local_name(text.tag) == "t")
+            text = "".join(item.text or "" for item in child if _local_name(item.tag) == "t")
+            _append_run(parts, child, text)
         elif name == "br":
             parts.append("\n")
         elif name == "AlternateContent":
@@ -1358,6 +1516,26 @@ def _drawing_paragraph_text(node: Element, *, depth: int) -> str:
                     parts.append(text)
                     break
     return "".join(parts)
+
+
+def _append_run(parts: list[str], run: Element, text: str) -> None:
+    """Add a run's text, with a raised number after a word or number set off by a caret.
+
+    Joined as plain text, a count of 103 with footnote 1 reads 1031 and ten to
+    the sixth reads 106: another number, which nothing on the page corrects.
+    """
+
+    properties = _child_by_local_name(run, "rPr")
+    if properties is not None and text and parts:
+        align = _child_by_local_name(properties, "vertAlign")
+        raised = _int_attribute(properties, "baseline", 0) > 0 or (
+            align is not None and any(value == "superscript" for value in align.attrib.values())
+        )
+        follows_text = parts[-1][-1:].isalnum() and not parts[-1].startswith("^")
+        if raised and follows_text and _RAISED_NUMBER_RE.fullmatch(text):
+            text = f"^{text}"
+    if text:
+        parts.append(text)
 
 
 def _smartart_lines(package: _OfficePackage, member: str, relationship_ids: Element) -> list[str]:
@@ -1929,7 +2107,7 @@ def _docx_inline_text(node: Element, depth: int = 0) -> str:
                     parts.append("\n")
                 parts.extend((nested, "\n"))
         else:
-            parts.append(_docx_inline_text(child, depth + 1))
+            _append_run(parts, child, _docx_inline_text(child, depth + 1))
     return "".join(parts)
 
 
@@ -2401,7 +2579,10 @@ def _xlsx_display_text(node: Element, depth: int = 0) -> str:
         return ""
     if _local_name(node.tag) == "t":
         return node.text or ""
-    return "".join(_xlsx_display_text(child, depth + 1) for child in node)
+    parts: list[str] = []
+    for child in node:
+        _append_run(parts, child, _xlsx_display_text(child, depth + 1))
+    return "".join(parts)
 
 
 def _validate_office_xml_depth(depth: int) -> None:

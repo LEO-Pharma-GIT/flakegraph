@@ -84,9 +84,13 @@ _PROVIDER_OCR_CACHE_FIELDS = {
 # this table keep their keys unchanged.
 #   builtin_text 2: Office tables, charts, speaker notes and pictures as
 #     structured blocks and assets; slide reading order; HTML tables.
+#   builtin_text 3: text boxes laid over a slide table's empty cells fill them.
+#   builtin_text 4: raised numbers in Office text are set off from what they
+#     follow; what stands on a slide's shape is read with it; a hidden slide
+#     says so.
 #   MinerU 2: HTML table blocks rendered as markdown tables with structure.
 OCR_PARSER_REVISIONS: dict[str, int] = {
-    "builtin_text": 2,
+    "builtin_text": 4,
     "mineru_internal": 2,
     "mineru_api": 2,
 }
