@@ -129,13 +129,13 @@ describe("readEachDocument under load", () => {
 describe("withoutGaps", () => {
   it("drops sentences that report what the document leaves out and keeps what it states", () => {
     expect(
-      withoutGaps("The document does not state the 2020 strengths. It reports that Concept W was the most memorable. It does not mention pricing."),
-    ).toBe("It reports that Concept W was the most memorable.");
+      withoutGaps("The document does not state last year's yields. It reports that the north field was the wettest. It does not mention pricing."),
+    ).toBe("It reports that the north field was the wettest.");
     expect(withoutGaps("There is no information on Japan. The report does not specify a sample size.")).toBe("");
   });
 
   it("keeps the document's statements about its own scope and gaps that carry a finding", () => {
-    const scope = "No, the study did not include pharmacists; it surveyed 81 dermatologists.";
+    const scope = "No, the study did not include beekeepers; it surveyed nine growers.";
     expect(withoutGaps(scope)).toBe(scope);
     const withFinding = "The document does not state a total, but lists 3 waves.";
     expect(withoutGaps(withFinding)).toBe(withFinding);
