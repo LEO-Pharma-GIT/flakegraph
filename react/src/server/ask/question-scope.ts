@@ -102,7 +102,10 @@ export function scopeNote(scope: QuestionScope): string | null {
     lines.push("The answer must account for every document that bears on the question: read them one by one first.");
   }
   if (scope.counts) {
-    lines.push("The question counts things: list each one you count, and say whether you counted documents or folders.");
+    lines.push(
+      "The question counts things: list each one you count, and say whether you counted documents or folders. " +
+        "To count documents by who prepared them, for whom, when, where or whom they sampled, use countDocuments.",
+    );
   }
   return lines.length ? lines.join("\n") : null;
 }

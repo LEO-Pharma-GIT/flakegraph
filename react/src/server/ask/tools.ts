@@ -21,7 +21,8 @@ import { formatGraphSearch, hasGraphHit } from "./format";
 import { graphSearch } from "./graph-search";
 import { structuredObservation } from "./observations";
 import { searchPassages } from "./passages";
-import { findDocuments, renderCards } from "./catalogue";
+import { documentRecords, ORGANIZATION_ROLES, renderRecord } from "./card-record";
+import { CATALOGUE_GROUPS, findDocuments, queryCatalogue, renderCards, renderCatalogueQuery } from "./catalogue";
 import type { QuestionScope } from "./question-scope";
 import {
   PER_DOCUMENT_MAX_DOCUMENTS,
@@ -68,6 +69,7 @@ const modeSchema = z.enum(["local", "global", "hybrid", "drift"]).optional();
 export const ASK_TOOL_NAMES = [
   "searchPassages",
   "findDocuments",
+  "countDocuments",
   "readEachDocument",
   "searchGraph",
   "searchEntities",
@@ -106,6 +108,7 @@ export function createAskTools(input: AskToolSession) {
     return { documentIds: merged };
   };
   const documentNames = documentNameIndex(session.dataset.documents);
+  const records = documentRecords(session.dataset);
   const entityDocuments = entityDocumentIndex(session.dataset);
   // A citation names its document by file; one quoting an entity's own
   // description, which no single quote grounds, names the document the
@@ -210,6 +213,35 @@ Use it for questions about the documents themselves - which of them cover someth
         return { text: renderCards(result), documentIds: result.cards.map((card) => card.documentId) };
       },
     }),
+    countDocuments: tool({
+      description: `Filter and count the graph's documents by the typed fields of their catalogue cards: who prepared each one (author) and for whom (commissioner), which organizations it discusses (subject) or cites (source), the places it covers, the year it is dated, the groups it sampled, its type.
+
+Use it whenever a question counts, lists or ranks documents by such a field - how many reports an agency prepared, which date from a year, which cover a market or surveyed a group, which agency prepared the most - and give the number it returns, naming the documents. Group by a field to count per value. An organization only cited as a source did not prepare the document; the client a document was made for is its commissioner, not its author. Read the matching documents with readEachDocument when the question also asks what they found.`,
+      inputSchema: z.object({
+        organizations: z.array(z.string().min(1)).max(10).optional().describe("Any of these organizations."),
+        role: z.enum(ORGANIZATION_ROLES).optional().describe("The part the organization plays in the document."),
+        places: z.array(z.string().min(1)).max(10).optional().describe("Any of these countries, regions or markets."),
+        fromYear: z.number().int().optional(),
+        toYear: z.number().int().optional(),
+        samples: z.array(z.string().min(1)).max(10).optional().describe("A sampled group holding any of these words, such as growers or patients."),
+        documentType: z.string().optional(),
+        text: z.string().optional().describe("Words the document's name or card must match."),
+        groupBy: z.enum(CATALOGUE_GROUPS).optional().describe("Count the matching documents per value of this field."),
+        documentIds: z.array(z.string().min(1)).optional(),
+      }),
+      execute: async ({ groupBy, documentIds, ...filter }) => {
+        session.onProgress?.({ phase: "searching_evidence", message: "Counting documents in the catalogue", detail: groupBy });
+        const scoped = documentScope(documentIds);
+        if (scoped.mismatch) {
+          return structuredObservation("GRAPH_DOCUMENT_SCOPE_MISMATCH", scoped.mismatch);
+        }
+        const result = queryCatalogue(session.dataset, { ...filter, documentIds: scoped.documentIds }, groupBy);
+        return {
+          text: renderCatalogueQuery(result, groupBy),
+          documentIds: result.matches.map((match) => match.card.documentId),
+        };
+      },
+    }),
     readEachDocument: tool({
       description: `Read several documents one by one for the same question, in parallel, and get what each says on it - or that it says nothing.
 
@@ -251,6 +283,7 @@ Use it whenever the answer spans documents: comparing them, listing or counting 
               documentName: card.name,
               card: card.card,
               group: card.folder,
+              record: records.get(card.documentId) ? renderRecord(records.get(card.documentId)!) : null,
               passages: found.passages.map((passage) => ({
                 page: passage.pageNumber ?? 0,
                 sectionPath: passage.sectionPath,

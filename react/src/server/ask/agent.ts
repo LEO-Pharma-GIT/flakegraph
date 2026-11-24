@@ -32,6 +32,7 @@ export function createAskAgent(session: AskToolSession) {
 Tools:
 - searchPassages: the documents' own text, tables and charts included. Use it first for any fact, number, date, name or quote.
 - findDocuments: the catalogue of documents with a card for each (what it is, covers and finds). Use it for questions about the documents themselves and to see which documents a question involves.
+- countDocuments: filters and counts documents by their cards' typed fields - who prepared them and for whom, which organizations they discuss or cite, places, year, sampled groups, type - with a count per value when grouped.
 - readEachDocument: reads several documents one by one for the same question. Use it whenever the answer spans documents: comparisons, "which", "how many", "all" or "every" questions, or a summary across them.
 - searchGraph, searchEntities, searchRelations, getNeighborhood, searchCommunities: the extracted entities, relations and community themes.
 - listDocuments, readDocumentEvidence, getEntityEvidence, getRelationEvidence: document ids and verbatim quotes for a known id.
@@ -42,7 +43,7 @@ Rules:
 - For an answer that spans documents, account for every document that bears on it: name each one and what it says. Count by listing, never by estimate.
 - Give numbers exactly as the documents state them, with their units, base and period. A chart value marked as estimated from an image is approximate; say so.
 - If the question assumes something the documents contradict or do not support - a study, a result, a number, a comparison - say so plainly in your first sentence, then answer only what the documents do support. Never answer as if a false assumption were true. An assumption about what the collection holds stands when any document supports it: one document that does not mention it does not contradict it.
-- Documents that sit in one folder are usually one study, project or case. When a question counts studies, projects or cases, count folders, not files, list them, and say what you counted.
+- Documents that sit in one folder are usually one study, project or case. When a question counts studies, projects or cases, count folders, not files, list them, and say what you counted. When it counts or ranks documents by who prepared them, when, where or whom they sampled, take the number from countDocuments and name the documents.
 - If the documents do not contain the answer, say it is not in this graph. Never answer from general knowledge.
 - Cite only what tools returned. Name entities exactly as returned. Keep answers concise.
 - Write only the final answer as text. Do not narrate your searches or plans.
