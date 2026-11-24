@@ -37,7 +37,9 @@ export const PER_DOCUMENT_PASSAGES = 10;
 /** How much of one document's passages and card a call reads. */
 export const PER_DOCUMENT_CONTEXT_CHAR_LIMIT = 14_000;
 export const PER_DOCUMENT_MAX_OUTPUT_TOKENS = 1_600;
-export const PER_DOCUMENT_CALL_TIMEOUT_MS = 90_000;
+// Measured from when the reading is sent: under load a reading waits at the
+// engine, and a shorter limit cuts many readings short behind a busy gateway.
+export const PER_DOCUMENT_CALL_TIMEOUT_MS = 240_000;
 /** A document whose call fails is read once more before it is reported unread. */
 export const PER_DOCUMENT_ATTEMPTS = 2;
 const MAX_FACTS = 10;

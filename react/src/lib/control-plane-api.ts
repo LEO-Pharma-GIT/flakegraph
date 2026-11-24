@@ -795,7 +795,7 @@ export const CONTROL_PLANE_ENDPOINTS: readonly ApiEndpoint[] = [
       "{ runId, question or messages (AI SDK UIMessage[]), mode?: local | global | hybrid | drift | auto, perspectiveId?, documentIds?, topK?: 1-40, format?: ui | ndjson } (runId and mode may be query parameters; accept: application/x-ndjson also picks NDJSON)",
     returns: "An AI SDK UI message stream, or NDJSON events: status, tool, text, citation, then one done or one error",
     limits:
-      "404 for a run the caller cannot read, 409 unless it finished. Without a configured model the graph answers with its own matching text. A question may run for up to 20 minutes.",
+      "404 for a run the caller cannot read, 409 unless it finished. Without a configured model the graph answers with its own matching text. A question may run for up to an hour.",
   },
   {
     name: "/api/ask/jobs",
