@@ -475,6 +475,9 @@
             "speculativeMoeBackend": {
               "type": "string"
             },
+            "speculativeDraftSampleMethod": {
+              "type": "string"
+            },
             "enginePort": {
               "type": "integer",
               "minimum": 1,
@@ -1386,6 +1389,9 @@
           "properties": { "name": { "type": "string", "minLength": 1 } },
           "required": ["name"]
         },
+        "pipelineModel": {
+          "type": "string"
+        },
         "gpuMemoryUtilization": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
         "maxModelLen": { "type": "integer", "minimum": 512 },
         "device": {
@@ -1413,6 +1419,120 @@
         "tolerations": { "type": "array" },
         "affinity": { "type": "object" },
         "topologySpreadConstraints": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "poolingServers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "model",
+          "gpuMemoryUtilization"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+            "maxLength": 40
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1
+          },
+          "gateway": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "embedding",
+                  "rerank"
+                ]
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "timeoutSeconds": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "gpuMemoryUtilization": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1
+          },
+          "maxModelLen": {
+            "type": "integer",
+            "minimum": 512
+          },
+          "extraArgs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "replicas": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "spreadAcrossNodes": {
+            "type": "boolean"
+          },
+          "freeMemory": {
+            "type": "string",
+            "enum": [
+              "available",
+              "free"
+            ]
+          },
+          "runtimeClassName": {
+            "type": "string"
+          },
+          "modelCacheSizeLimit": {
+            "type": "string"
+          },
+          "resources": {
+            "type": "object"
+          },
+          "nodeSelector": {
+            "type": "object"
+          },
+          "tolerations": {
+            "type": "array"
+          },
+          "affinity": {
+            "type": "object"
+          },
+          "extraEnv": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "extraVolumeMounts": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "extraVolumes": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
       }
     },
     "documentParsing": {

@@ -361,6 +361,9 @@ modelServing:
     # carries one. Others need a separate draft model, named below, and a
     # build that registers the architecture. Required when tokens are set.
     speculativeMethod: ""
+    # How the drafter picks its tokens, where the method offers a choice (dspark:
+    # greedy or probabilistic). Empty keeps the engine's default.
+    speculativeDraftSampleMethod: ""
     # Empty means the drafter lives in the target checkpoint. A path or a hub
     # id names a separate one. Pin the revision when this is a hub id, for the
     # same reason the target's is pinned; leave it empty when this is a
@@ -1187,6 +1190,12 @@ embeddingServing:
     # Must match config.embedding.model: the application image carries this
     # checkpoint for the local path, and the server is seeded from it.
     name: Qwen/Qwen3-Embedding-0.6B
+  # The gateway model the pipeline embeds with: empty for this server's, or
+  # the name of a poolingServers entry in embedding mode. It is part of the
+  # configuration digest, so changing it strands queued and running runs, and
+  # graphs it embeds are comparable only with questions embedded by the same
+  # model (Ask's controlPlane.ask.embeddingModel must name it).
+  pipelineModel: ""
   # A share of one device. On a unified-memory part the engine's share and this
   # one come out of the same pool - see modelServing.server.gpuMemoryUtilization.
   gpuMemoryUtilization: 0.05
@@ -1226,6 +1235,36 @@ embeddingServing:
   # where they would share its compute and gain nothing.
   affinity: {}
   topologySpreadConstraints: []
+
+# Further vLLM pooling servers beside embeddingServing - a larger embedding
+# model, a reranker - each named in the gateway under its checkpoint's name
+# (or gateway.name) and reached only through it. Each downloads its model from
+# Hugging Face on first start, through modelServing.huggingFaceTokenSecret and
+# whatever CA bundle extraEnv/extraVolumes provide, and shares the node's GPU
+# with the engine there (it claims no device), so give it a runtime class that
+# exposes the device. An entry:
+#
+#   - name: embedding-4b                 # Service <release>-<name>
+#     model: Qwen/Qwen3-Embedding-4B
+#     gateway: {mode: embedding}         # or rerank: LiteLLM's /rerank
+#     gpuMemoryUtilization: 0.12         # a share of the device; see embeddingServing
+#     maxModelLen: 8192
+#     extraArgs: []                      # e.g. --hf-overrides, --pooler-config, --chat-template
+#     replicas: 1
+#     spreadAcrossNodes: false
+#     freeMemory: available              # free: count MemFree on a unified-memory node
+#                                        # tuned with a high vm.watermark_scale_factor;
+#                                        # see serving/sitecustomize.py
+#     runtimeClassName: nvidia
+#     modelCacheSizeLimit: 20Gi
+#     resources: {}                      # on unified memory the GPU share counts inside the memory limit
+#     nodeSelector: {}
+#     tolerations: []
+#     affinity: {}
+#     extraEnv: []
+#     extraVolumeMounts: []
+#     extraVolumes: []
+poolingServers: []
 
 documentParsing:
   enabled: true

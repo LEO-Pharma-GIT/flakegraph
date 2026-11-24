@@ -75,16 +75,48 @@ checked, here, and it must list this model.
       # every call a client makes without naming a format - the pipeline's
       # own adapter among them - is refused with a 400.
       encoding_format: float
+      # A text longer than the server's --max-model-len is embedded from its
+      # first tokens, not refused: one long node or community description
+      # would otherwise fail its whole batch, and the run with it.
+      extra_body:
+        truncate_prompt_tokens: -1
       # Under the pipeline's own 120-second embedding timeout, so the proxy has
       # given a call up before its caller sends it again.
       timeout: 100
     model_info:
       mode: embedding
 {{- end }}
+{{- range $server := .Values.poolingServers }}
+{{- /*
+A further pooling server, under the name callers ask for (its checkpoint's
+own unless gateway.name says otherwise); keyless like the embedding server.
+*/}}
+{{- $endpoint := printf "http://%s:%v" (include "flakegraph.poolingServerName" (dict "root" $ "server" $server)) ($server.port | default 8000) }}
+{{- $gateway := $server.gateway | default dict }}
+{{- $mode := $gateway.mode | default "embedding" }}
+  - model_name: {{ $gateway.name | default $server.model }}
+    litellm_params:
+      {{- if eq $mode "rerank" }}
+      # LiteLLM posts to <api_base>/rerank, vLLM's Cohere-shaped endpoint.
+      model: hosted_vllm/{{ $server.model }}
+      api_base: {{ $endpoint }}
+      {{- else }}
+      model: openai/{{ $server.model }}
+      api_base: {{ $endpoint }}/v1
+      encoding_format: float
+      # Longer texts are embedded from their first tokens, as above.
+      extra_body:
+        truncate_prompt_tokens: -1
+      {{- end }}
+      api_key: unused
+      timeout: {{ $gateway.timeoutSeconds | default 100 }}
+    model_info:
+      mode: {{ $mode }}
+{{- end }}
 {{- range $entry := $litellm.extraModelList }}
   - {{ toYaml $entry | nindent 4 | trim }}
 {{- end }}
-{{- if .Values.embeddingServing.enabled }}
+{{- if or .Values.embeddingServing.enabled .Values.poolingServers }}
 router_settings:
   # The proxy does not stop an upstream request when its caller gives up, and
   # by default it retries a timed-out embedding several times over. Behind a
@@ -92,9 +124,16 @@ router_settings:
   # the queue outgrows every timeout, and no call completes. The caller
   # retries for itself, so the proxy sends each embedding call once.
   model_group_retry_policy:
+    {{- if .Values.embeddingServing.enabled }}
     {{ .Values.embeddingServing.model.name }}:
       TimeoutErrorRetries: 0
       InternalServerErrorRetries: 0
+    {{- end }}
+    {{- range $server := .Values.poolingServers }}
+    {{ (($server.gateway | default dict).name) | default $server.model }}:
+      TimeoutErrorRetries: 0
+      InternalServerErrorRetries: 0
+    {{- end }}
 {{- end }}
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
