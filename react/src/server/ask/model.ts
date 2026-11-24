@@ -66,6 +66,7 @@ let probed: Promise<void> | null = null;
 
 export function resetAskModel(): void {
   cached = undefined;
+  cachedReader = undefined;
   probed = null;
   resetProviderEnv();
 }
@@ -117,6 +118,63 @@ function ollamaBaseUrl(): string {
   return base.replace(/\/$/, "").replace(/\/v1$/, "");
 }
 
+/** A hosted Azure or OpenAI-compatible model, or null when its key or base URL is missing. */
+function hostedModel(
+  env: Record<string, string | undefined>,
+  config: { key?: string; base?: string; model: string; azureApi?: string; structured: AskModel["structuredOptions"] },
+): AskModel | null {
+  const { key, base, model, structured } = config;
+  if (!key || !base) {
+    return null;
+  }
+  if (isAzureHost(base)) {
+    const baseURL = azureOpenAiBase(base);
+    const apiVersion = first(env, ASK_API_VERSION_VARIABLES) ?? DEFAULT_AZURE_API_VERSION;
+    // Reasoning deployments that refuse function tools on Chat Completions take
+    // them on the Responses API, which Azure serves on its v1 surface by model.
+    const languageModel =
+      config.azureApi === "responses"
+        ? createAzure({ baseURL, apiKey: key, apiVersion: "v1" }).responses(model)
+        : createAzure({ baseURL, apiKey: key, apiVersion, useDeploymentBasedUrls: true }).chat(model);
+    return { languageModel, provider: "azure", modelId: model, billed: true, structuredOptions: structured };
+  }
+  const openai = createOpenAI({ baseURL: base.replace(/\/$/, ""), apiKey: key });
+  return { languageModel: openai.chat(model), provider: "openai", modelId: model, billed: true, structuredOptions: structured };
+}
+
+let cachedReader: AskModel | null | undefined;
+
+/**
+ * The model that reads each document one by one for a question that spans
+ * many. It is the Ask model unless `FLAKEGRAPH_ASK_READER_MODEL` names another,
+ * with `FLAKEGRAPH_ASK_READER_BASE_URL`, `FLAKEGRAPH_ASK_READER_API_KEY` and
+ * `FLAKEGRAPH_ASK_READER_AZURE_API` (each the Ask model's when unset): a
+ * question reads dozens of documents and writes one answer, so the two can be
+ * priced and placed apart.
+ */
+export function resolveReaderModel(): AskModel | null {
+  if (cachedReader !== undefined) {
+    return cachedReader;
+  }
+  const env = askEnv();
+  const model = first(env, ["FLAKEGRAPH_ASK_READER_MODEL"]);
+  cachedReader = model
+    ? hostedModel(env, {
+        key: first(env, ["FLAKEGRAPH_ASK_READER_API_KEY"]) ?? first(env, ASK_KEY_VARIABLES),
+        base: first(env, ["FLAKEGRAPH_ASK_READER_BASE_URL"]) ?? first(env, ASK_BASE_VARIABLES),
+        model,
+        azureApi: first(env, ["FLAKEGRAPH_ASK_READER_AZURE_API"]) ?? first(env, ["FLAKEGRAPH_ASK_AZURE_API"]),
+        structured: readerStructured(env),
+      })
+    : resolveAskModel();
+  return cachedReader;
+}
+
+function readerStructured(env: Record<string, string | undefined>): AskModel["structuredOptions"] {
+  const raw = env.FLAKEGRAPH_ASK_READER_STRUCTURED_REASONING?.trim();
+  return raw ? structuredOptions({ FLAKEGRAPH_ASK_STRUCTURED_REASONING: raw }) : structuredOptions(env);
+}
+
 export function askModelConfigured(): boolean {
   return resolveAskModel() != null;
 }
@@ -124,37 +182,15 @@ export function askModelConfigured(): boolean {
 function loadAskModel(): AskModel | null {
   const env = askEnv();
   const structured = structuredOptions(env);
-  const askKey = first(env, ASK_KEY_VARIABLES);
-  const askBase = first(env, ASK_BASE_VARIABLES);
-  const askModel = first(env, ["FLAKEGRAPH_ASK_MODEL", "AZURE_OPENAI_DEPLOYMENT"]) ?? DEFAULT_AZURE_DEPLOYMENT;
-  const apiVersion = first(env, ASK_API_VERSION_VARIABLES) ?? DEFAULT_AZURE_API_VERSION;
-
-  if (askKey && askBase && isAzureHost(askBase)) {
-    const baseURL = azureOpenAiBase(askBase);
-    const azure = createAzure({
-      baseURL,
-      apiKey: askKey,
-      apiVersion,
-      useDeploymentBasedUrls: true,
-    });
-    return {
-      languageModel: azure.chat(askModel),
-      provider: "azure",
-      modelId: askModel,
-      billed: true,
-      structuredOptions: structured,
-    };
-  }
-
-  if (askKey && askBase && !isAzureHost(askBase)) {
-    const openai = createOpenAI({ baseURL: askBase.replace(/\/$/, ""), apiKey: askKey });
-    return {
-      languageModel: openai.chat(askModel),
-      provider: "openai",
-      modelId: askModel,
-      billed: true,
-      structuredOptions: structured,
-    };
+  const hosted = hostedModel(env, {
+    key: first(env, ASK_KEY_VARIABLES),
+    base: first(env, ASK_BASE_VARIABLES),
+    model: first(env, ["FLAKEGRAPH_ASK_MODEL", "AZURE_OPENAI_DEPLOYMENT"]) ?? DEFAULT_AZURE_DEPLOYMENT,
+    azureApi: first(env, ["FLAKEGRAPH_ASK_AZURE_API"]),
+    structured,
+  });
+  if (hosted) {
+    return hosted;
   }
 
   const ollamaBase = first(env, OLLAMA_BASE_VARIABLES) ?? DEFAULT_OLLAMA_BASE_URL;

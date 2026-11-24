@@ -57,7 +57,7 @@ function scriptedModel(): AskModel {
 
 vi.mock("./model", async (importOriginal) => {
   const original = await importOriginal<typeof import("./model")>();
-  return { ...original, resolveAskModel: () => scriptedModel() };
+  return { ...original, resolveAskModel: () => scriptedModel(), resolveReaderModel: () => scriptedModel() };
 });
 
 process.env.FLAKEGRAPH_ASK_READ_SLOTS = "3";
