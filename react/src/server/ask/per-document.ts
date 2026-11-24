@@ -118,7 +118,7 @@ const SYSTEM = `You read one document for one question and report only what that
  * state ..." - rather than something it says. A reader asked to report only
  * what a document states still writes these; they read as findings and lead the
  * answer to deny what other documents show. A statement the document makes
- * about its own scope ("the study did not include pharmacists") is kept.
+ * about its own scope ("the study did not include beekeepers") is kept.
  */
 const GAP_VERBS =
   "(?:explicitly |specifically |directly )?(?:state|say|mention|specify|report|cover|provide|discuss|address|describe|indicate|identify|give|detail|contain|present|list|explain|name|quantify|clarify|reference|break down|offer)\\b";
