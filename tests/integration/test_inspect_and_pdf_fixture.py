@@ -79,7 +79,12 @@ def test_inspect_reports_written_graph(tmp_path: Path) -> None:
             "ocr": {"provider": "builtin_text"},
             "llm": {"provider": "fake", "model": "fake"},
             "embedding": {"provider": "hash", "dimension": 8},
-            "graph": {"chunk_token_size": 30, "chunk_token_overlap": 5, "gleaning_max_passes": 0},
+            "graph": {
+                "chunk_token_size": 30,
+                "chunk_token_overlap": 5,
+                "gleaning_max_passes": 0,
+                "community_reports": True,
+            },
             "writer": {"output_path": output_dir},
         }
     )
