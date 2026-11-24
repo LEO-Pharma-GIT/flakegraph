@@ -1136,9 +1136,7 @@ def test_images_default_to_the_published_release() -> None:
     version = yaml.safe_load(Path("deploy/helm/flakegraph/Chart.yaml").read_text())["appVersion"]
 
     assert values["image"]["repository"] == "ghcr.io/leo-pharma-git/flakegraph"
-    assert values["spark"]["image"]["repository"] == (
-        "ghcr.io/leo-pharma-git/flakegraph-spark"
-    )
+    assert values["spark"]["image"]["repository"] == ("ghcr.io/leo-pharma-git/flakegraph-spark")
     assert values["image"]["tag"] == ""
     assert values["spark"]["image"]["tag"] == ""
     for block in (values["image"], values["spark"]["image"], values["modelServing"]["image"]):
@@ -1668,6 +1666,35 @@ def test_object_storage_cannot_silently_select_an_unavailable_spark_runtime() ->
 
     assert "spark.enabled must be true when artifactStorage.uri is configured" in refusal
     _render(("artifactStorage.uri=s3://artifacts", "spark.enabled=true"))
+
+
+def test_the_drafters_sampling_is_named_only_when_a_value_names_it() -> None:
+    """A method that offers no choice of sampling must not be sent one."""
+
+    def config(*extra: str) -> dict[str, object]:
+        args = _container(
+            _pod(
+                _one(
+                    _render(
+                        (
+                            *_SERVING,
+                            "modelServing.server.speculativeTokens=7",
+                            "modelServing.server.speculativeMethod=dspark",
+                            *extra,
+                        )
+                    ),
+                    "StatefulSet",
+                    _VLLM,
+                )
+            ),
+            "vllm",
+        )["args"]
+        named: dict[str, object] = json.loads(args[args.index("--speculative-config") + 1])
+        return named
+
+    assert config() == {"method": "dspark", "num_speculative_tokens": 7}
+    sampled = config("modelServing.server.speculativeDraftSampleMethod=probabilistic")
+    assert sampled["draft_sample_method"] == "probabilistic"
 
 
 def test_a_draft_model_path_must_have_somewhere_to_come_from() -> None:
@@ -2234,6 +2261,9 @@ def test_embedding_serving_moves_every_consumer_onto_the_gpu_through_the_gateway
     # Without it the proxy asks for base64, the pooling server answers 400, and
     # every finalization fails at its first embedding.
     assert entry["litellm_params"]["encoding_format"] == "float"
+    # A text past the server's context is embedded from its first tokens
+    # rather than failing its batch.
+    assert entry["litellm_params"]["extra_body"] == {"truncate_prompt_tokens": -1}
 
     pod = _pod(_one(rendered, "Deployment", _EMBEDDING_NAME))
     server = _container(pod, "vllm")
@@ -2345,6 +2375,107 @@ def test_turning_embedding_serving_on_does_not_restart_the_engines() -> None:
 
 def test_embedding_serving_needs_the_gateway() -> None:
     message = _fails((*_EMBEDDING, "gateway.enabled=false"))
+    assert "enable gateway" in message
+
+
+def _pooling_values(tmp_path: Path) -> Path:
+    values = tmp_path / "pooling.yaml"
+    values.write_text(
+        yaml.safe_dump(
+            {
+                "poolingServers": [
+                    {
+                        "name": "embedder-large",
+                        "model": "example/embedder-large",
+                        "gpuMemoryUtilization": 0.09,
+                        "extraArgs": ["--pooler-config", '{"dimensions": 1024}'],
+                        "runtimeClassName": "nvidia",
+                    },
+                    {
+                        "name": "reranker",
+                        "model": "example/reranker",
+                        "gateway": {"mode": "rerank"},
+                        "gpuMemoryUtilization": 0.04,
+                        "spreadAcrossNodes": True,
+                        "replicas": 2,
+                    },
+                ]
+            }
+        )
+    )
+    return values
+
+
+def test_pooling_servers_are_named_in_the_gateway_by_mode(tmp_path: Path) -> None:
+    """A larger embedder or a reranker is one values entry: a server, its
+    Service, a gateway name in the right mode, and nothing else restarted."""
+
+    rendered = _render(_SERVING, values=(_pooling_values(tmp_path),))
+    embedder = _pod(_one(rendered, "Deployment", f"{_FULLNAME}-embedder-large"))
+    server = _container(embedder, "vllm")
+    assert server["args"][:3] == ["example/embedder-large", "--runner", "pooling"]
+    assert server["args"][-2:] == ["--pooler-config", '{"dimensions": 1024}']
+    assert embedder["runtimeClassName"] == "nvidia"
+    # Downloaded on first start, sharing the engine's device.
+    assert "HF_HUB_OFFLINE" not in _env(server)
+    assert "nvidia.com/gpu" not in str(server["resources"])
+    reranker = _pod(_one(rendered, "Deployment", f"{_FULLNAME}-reranker"))
+    assert reranker["topologySpreadConstraints"][0]["topologyKey"] == "kubernetes.io/hostname"
+
+    config = next(
+        document["data"]
+        for document in rendered
+        if document["kind"] == "ConfigMap" and "example/reranker" in str(document.get("data"))
+    )
+    gateway = yaml.safe_load(next(value for value in config.values() if "model_list" in value))
+    entries = {item["model_name"]: item for item in gateway["model_list"]}
+    assert entries["example/embedder-large"]["litellm_params"] == {
+        "model": "openai/example/embedder-large",
+        "api_base": f"http://{_FULLNAME}-embedder-large:8000/v1",
+        "encoding_format": "float",
+        "extra_body": {"truncate_prompt_tokens": -1},
+        "api_key": "unused",
+        "timeout": 100,
+    }
+    assert entries["example/reranker"]["model_info"]["mode"] == "rerank"
+    assert entries["example/reranker"]["litellm_params"]["model"] == "hosted_vllm/example/reranker"
+    assert (
+        entries["example/reranker"]["litellm_params"]["api_base"]
+        == f"http://{_FULLNAME}-reranker:8000"
+    )
+    assert set(gateway["router_settings"]["model_group_retry_policy"]) == {
+        "example/embedder-large",
+        "example/reranker",
+    }
+
+    # Only the gateway may reach a server that checks no key.
+    policy = _one(rendered, "NetworkPolicy", f"{_FULLNAME}-reranker")
+    assert (
+        policy["spec"]["ingress"][0]["from"][0]["podSelector"]["matchLabels"][
+            "app.kubernetes.io/component"
+        ]
+        == "gateway"
+    )
+
+    before = _one(_render(_SERVING), "StatefulSet", _VLLM)["spec"]["template"]
+    after = _one(rendered, "StatefulSet", _VLLM)["spec"]["template"]
+    assert before == after
+
+
+def test_the_pipeline_can_embed_with_a_pooling_server(tmp_path: Path) -> None:
+    """Workers name the gateway model they embed with, so a graph records it."""
+
+    rendered = _render(
+        (*_EMBEDDING, "embeddingServing.pipelineModel=example/embedder-large"),
+        values=(_pooling_values(tmp_path),),
+    )
+    for pool in ("prepare", "extract", "finalize"):
+        worker = _container(_pod(_one(rendered, "Deployment", f"{_FULLNAME}-{pool}")), "worker")
+        assert _env(worker)["KG_EMBEDDING_MODEL"]["value"] == "example/embedder-large", pool
+
+
+def test_pooling_servers_need_the_gateway(tmp_path: Path) -> None:
+    message = _fails((*_SERVING, "gateway.enabled=false"), values=(_pooling_values(tmp_path),))
     assert "enable gateway" in message
 
 

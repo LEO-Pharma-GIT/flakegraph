@@ -344,6 +344,9 @@ spec:
             {{- with .Values.modelServing.server.speculativeMoeBackend }}
             {{- $_ := set $speculative "moe_backend" . }}
             {{- end }}
+            {{- with .Values.modelServing.server.speculativeDraftSampleMethod }}
+            {{- $_ := set $speculative "draft_sample_method" . }}
+            {{- end }}
             {{- if .Values.modelServing.server.speculativeDraftModel }}
             {{- $_ := set $speculative "model" .Values.modelServing.server.speculativeDraftModel }}
             {{- end }}

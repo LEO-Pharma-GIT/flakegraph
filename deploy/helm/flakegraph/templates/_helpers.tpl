@@ -109,6 +109,11 @@ x-flakegraph-lane
 {{- printf "%s-embedding" (include "flakegraph.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{/* A further pooling server's in-cluster name: (dict "root" $ "server" $server). */}}
+{{- define "flakegraph.poolingServerName" -}}
+{{- printf "%s-%s" (include "flakegraph.fullname" .root) .server.name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{/* The OpenAI-compatible base the gateway forwards embedding calls to. */}}
 {{- define "flakegraph.embeddingServingEndpoint" -}}
 {{- printf "http://%s:%v/v1" (include "flakegraph.embeddingServingName" .) .Values.embeddingServing.service.port -}}
@@ -277,7 +282,7 @@ rather than an alias, and the gateway serves it under that name.
 - name: KG_EMBEDDING_ENDPOINT
   value: {{ include "flakegraph.gatewayEndpoint" . | quote }}
 - name: KG_EMBEDDING_MODEL
-  value: {{ .Values.embeddingServing.model.name | quote }}
+  value: {{ .Values.embeddingServing.pipelineModel | default .Values.embeddingServing.model.name | quote }}
 - name: KG_EMBEDDING_API_KEY
   valueFrom:
     secretKeyRef:

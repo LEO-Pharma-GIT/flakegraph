@@ -104,6 +104,9 @@ spec:
             {{- if .Values.embeddingServing.enabled }}
             {{- $neighbours = append $neighbours (printf "app.kubernetes.io/instance=%s,app.kubernetes.io/component=embedding-serving" .Release.Name) }}
             {{- end }}
+            {{- range $server := .Values.poolingServers }}
+            {{- $neighbours = append $neighbours (printf "app.kubernetes.io/instance=%s,app.kubernetes.io/component=pooling-%s" $.Release.Name $server.name) }}
+            {{- end }}
             - name: FLAKEGRAPH_BALANCER_NEIGHBOUR_SELECTORS
               value: {{ join ";" $neighbours | quote }}
             {{- if .Values.documentParsing.enabled }}
