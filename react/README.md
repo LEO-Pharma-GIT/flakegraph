@@ -254,6 +254,8 @@ Every variable the console reads. Booleans accept `1`, `true`, `yes`, `on`.
 | --- | --- | --- |
 | `FLAKEGRAPH_ASK_API_KEY`, `FLAKEGRAPH_ASK_BASE_URL`, `FLAKEGRAPH_ASK_MODEL` | none | A hosted OpenAI-compatible or Azure OpenAI model. `AZURE_OPENAI_*` and `OPENAI_API_KEY`/`OPENAI_API_BASE_URL` are read as fallbacks. |
 | `FLAKEGRAPH_ASK_API_VERSION` | `2024-12-01-preview` | Azure API version (`AZURE_OPENAI_API_VERSION` as fallback). |
+| `FLAKEGRAPH_ASK_AZURE_API` | `chat` | `responses` calls an Azure deployment through the Responses API, for reasoning deployments that refuse function tools on Chat Completions (Azure's v1 API surface, whatever `FLAKEGRAPH_ASK_API_VERSION` says). |
+| `FLAKEGRAPH_ASK_READER_MODEL` | (the Ask model) | The model that reads each document one by one for a question spanning many; `FLAKEGRAPH_ASK_READER_BASE_URL`, `FLAKEGRAPH_ASK_READER_API_KEY`, `FLAKEGRAPH_ASK_READER_AZURE_API` and `FLAKEGRAPH_ASK_READER_STRUCTURED_REASONING` default to the Ask model's. A question reads dozens of documents and writes one answer, so the two can be priced and placed apart. |
 | `FLAKEGRAPH_ASK_SECRETS_FILE` | none | One dotenv-style file to read the variables above from. Nothing is looked for by convention; the file read is logged once. |
 | `FLAKEGRAPH_ASK_OLLAMA_BASE_URL` (or `OLLAMA_HOST`) | `http://127.0.0.1:11434/v1` | A local Ollama, used when no hosted model is named. Only loopback addresses are accepted without a probe. |
 | `FLAKEGRAPH_ASK_OLLAMA_MODEL` | `qwen3:4b-instruct` | The Ollama model. |

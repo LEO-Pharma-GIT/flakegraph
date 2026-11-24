@@ -2,7 +2,7 @@ import { generateText, Output } from "ai";
 import { z } from "zod";
 import { errorMessage } from "./errors";
 import { FairGate } from "./gate";
-import { resolveAskModel } from "./model";
+import { resolveReaderModel } from "./model";
 
 /**
  * Read each document on its own, then answer from what every one of them says.
@@ -183,7 +183,7 @@ export async function readEachDocument(
     assumptions?: readonly string[];
   } = {},
 ): Promise<DocumentFinding[]> {
-  const model = resolveAskModel();
+  const model = resolveReaderModel();
   if (!model) {
     throw new Error("Reading documents one by one needs the console's model.");
   }
@@ -232,7 +232,7 @@ function sharedGate(): FairGate {
 async function readOne(
   question: string,
   source: PerDocumentSource,
-  model: NonNullable<ReturnType<typeof resolveAskModel>>,
+  model: NonNullable<ReturnType<typeof resolveReaderModel>>,
   signal: AbortSignal | undefined,
   assumptions: readonly string[],
 ): Promise<DocumentFinding> {
