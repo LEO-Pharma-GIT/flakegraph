@@ -25,7 +25,9 @@ export interface QuestionScope {
   counts: boolean;
 }
 
-export const QUESTION_SCOPE_TIMEOUT_MS = 30_000;
+// A question the classifier gives up on is treated as "other" - not read
+// document by document, its assumptions unchecked - so it waits for a busy engine.
+export const QUESTION_SCOPE_TIMEOUT_MS = 10 * 60_000;
 const QUESTION_SCOPE_MAX_OUTPUT_TOKENS = 400;
 const MAX_ASSUMPTIONS = 5;
 const MAX_ASSUMPTION_CHARACTERS = 240;

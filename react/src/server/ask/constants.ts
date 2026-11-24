@@ -25,7 +25,7 @@ export const RERANK_SCORE_MAX = 10;
 export const RERANK_CHUNK_PROMPT_CHAR_LIMIT = 1_500;
 export const RERANK_COMMUNITY_PROMPT_CHAR_LIMIT = 1_500;
 export const RERANK_ENTITY_PROMPT_CHAR_LIMIT = 800;
-export const RERANK_LLM_CALL_TIMEOUT_MS = 20_000;
+export const RERANK_LLM_CALL_TIMEOUT_MS = 5 * 60_000;
 // The gateway keeps a request running after its caller gives up, and a model
 // that never closes its JSON writes until the context window is full: about an
 // hour holding one of an engine's slots. So every helper call has a ceiling
@@ -33,7 +33,7 @@ export const RERANK_LLM_CALL_TIMEOUT_MS = 20_000;
 export const RERANK_MAX_OUTPUT_TOKENS = 32;
 export const PLANNER_MAX_OUTPUT_TOKENS = 512;
 export const DRIFT_MAX_OUTPUT_TOKENS = 1_024;
-export const HELPER_LLM_CALL_TIMEOUT_MS = 60_000;
+export const HELPER_LLM_CALL_TIMEOUT_MS = 5 * 60_000;
 export const LLM_RERANK_CONCURRENCY = 4;
 
 export const GRAPH_SEARCH_CONTEXT_CHAR_BUDGET = 40_000;
@@ -80,9 +80,10 @@ export const ASK_ANSWER_MAX_OUTPUT_TOKENS = 8_192;
 // stream's limit, because on a busy engine the answer itself takes minutes.
 export const ASK_ANSWER_BY_MS = 10 * 60_000;
 // How long one question may take, tool calls and reasoning included. Generous,
-// because a reasoning model on a busy engine takes minutes, and a question cut
-// short has no answer at all.
-export const ASK_STREAM_TIMEOUT_MS = 20 * 60_000;
+// because a question that reads its documents one by one waits for shared
+// reading slots while others are read, a reasoning model on a busy engine takes
+// minutes, and a question cut short has no answer at all.
+export const ASK_STREAM_TIMEOUT_MS = 60 * 60_000;
 // The longest an NDJSON answer stays silent: while the model reads and writes,
 // a status repeats at this interval, so no client or proxy between the console
 // and its caller takes a long answer for a dead connection.
