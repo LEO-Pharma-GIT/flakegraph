@@ -56,24 +56,31 @@ export async function completeAsk(args: {
     preferredMode: args.mode,
     defaultTopK: args.topK,
   });
-  const result = await agent.generate({
+  // Streamed although the answer is returned whole: a long answer written in
+  // one call sends nothing until it ends, and the runtime's fetch gives up on
+  // a response silent for 300 s (Bun's idle limit, Node's headers timeout).
+  const result = await agent.stream({
     prompt: args.question,
     abortSignal: args.abortSignal,
     timeout: ASK_STREAM_TIMEOUT_MS,
     ...(args.onToolEvent ? toolEventCallbacks(args.onToolEvent) : {}),
   });
-  const grounding = groundingFromGenerateSteps(result.steps);
+  let failure: unknown;
+  await result.consumeStream({ onError: (error) => void (failure ??= error) });
+  if (failure) throw failure;
+  const steps = await result.steps;
+  const grounding = groundingFromGenerateSteps(steps);
   // As the streamed answer does: every document read one by one that bears on
   // the question follows the answer with what it says.
   const studies = new Map<string, StudyFinding>();
-  for (const step of result.steps) {
+  for (const step of steps) {
     for (const toolResult of step.toolResults) {
       for (const study of studyFindingsFromOutput(toolResult.output)) {
         studies.set(study.documentId, study);
       }
     }
   }
-  const written = result.text.trim();
+  const written = (await result.text).trim();
   const appendix = written ? renderStudies([...studies.values()]) : "";
   const summary = (appendix ? `${written}\n\n${appendix}` : written) || "No answer was generated from this graph.";
   return answerFromGrounding({
