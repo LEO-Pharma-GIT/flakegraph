@@ -1,4 +1,4 @@
-import { generateText, Output } from "ai";
+import { generateText, jsonSchema, Output, zodSchema } from "ai";
 import { z } from "zod";
 import { errorMessage } from "./errors";
 import { resolveAskModel } from "./model";
@@ -26,7 +26,8 @@ export interface QuestionScope {
 }
 
 export const QUESTION_SCOPE_TIMEOUT_MS = 30_000;
-const QUESTION_SCOPE_MAX_OUTPUT_TOKENS = 400;
+// Room for every field: a reply cut short fails its schema and the question is treated as "other".
+const QUESTION_SCOPE_MAX_OUTPUT_TOKENS = 1_600;
 const MAX_ASSUMPTIONS = 5;
 const MAX_ASSUMPTION_CHARACTERS = 240;
 
@@ -34,6 +35,21 @@ const ScopeSchema = z.object({
   scope: z.enum(QUESTION_SCOPES),
   assumptions: z.array(z.string().max(MAX_ASSUMPTION_CHARACTERS)).max(MAX_ASSUMPTIONS),
   counts: z.boolean(),
+});
+
+// What is accepted: a model that lists more or longer assumptions than asked
+// has them cut to the limits, rather than losing the whole classification.
+const ScopeReply = ScopeSchema.extend({
+  assumptions: z
+    .array(z.string())
+    .transform((items) => items.slice(0, MAX_ASSUMPTIONS).map((item) => item.slice(0, MAX_ASSUMPTION_CHARACTERS))),
+});
+
+const SCOPE_OUTPUT = jsonSchema<z.infer<typeof ScopeReply>>(() => zodSchema(ScopeSchema).jsonSchema, {
+  validate: (value) => {
+    const parsed = ScopeReply.safeParse(value);
+    return parsed.success ? { success: true, value: parsed.data } : { success: false, error: parsed.error };
+  },
 });
 
 const SYSTEM = `You classify one question asked of a collection of documents, before it is answered.
@@ -59,7 +75,7 @@ export async function classifyQuestion(question: string, signal?: AbortSignal): 
   try {
     const result = await generateText({
       model: model.languageModel,
-      output: Output.object({ schema: ScopeSchema }),
+      output: Output.object({ schema: SCOPE_OUTPUT }),
       ...model.structuredOptions,
       temperature: 0,
       maxOutputTokens: QUESTION_SCOPE_MAX_OUTPUT_TOKENS,
