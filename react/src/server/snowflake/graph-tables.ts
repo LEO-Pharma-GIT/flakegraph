@@ -122,3 +122,11 @@ export function reviewEdgeQuery(nodeLimit: number, edgeLimit: number): string {
     `ORDER BY E.ID LIMIT ${edgeLimit}`
   );
 }
+
+/** Every chunk of a graph as passage search reads it: its text and place, never its vector. */
+export const RETRIEVAL_CHUNK_QUERY =
+  "SELECT ID, GRAPH_ID, FILE_ID, DOCUMENT_ID, PAGE_NUMBER, CHUNK_INDEX, CONTENT, START_OFFSET, END_OFFSET, " +
+  "SECTION_PATH, BLOCK_IDS FROM KG_CHUNK WHERE GRAPH_ID = ? ORDER BY DOCUMENT_ID, CHUNK_INDEX";
+
+/** Every entity of a graph as question answering reads it, without its vector. */
+export const RETRIEVAL_NODE_QUERY = "SELECT * EXCLUDE EMBEDDING FROM KG_NODE WHERE GRAPH_ID = ? ORDER BY DEGREE DESC NULLS LAST, ID";

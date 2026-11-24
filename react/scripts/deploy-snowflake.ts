@@ -13,6 +13,10 @@
 //   FLAKEGRAPH_SNOWFLAKE_WAREHOUSE  warehouse for the console's queries
 //   FLAKEGRAPH_SNOWFLAKE_OPERATORS  users and roles who administer the console,
 //                                   comma-separated; FLAKEGRAPH_APP_OPERATORS on the service
+// and, to offer questions over graphs (docs/ask-on-snowflake.md), passed on as they are:
+//   FLAKEGRAPH_ASK_CORTEX_MODEL         the Cortex model that answers
+//   FLAKEGRAPH_ASK_READER_CORTEX_MODEL  the Cortex model that reads each document (default: the answering one)
+//   FLAKEGRAPH_CORTEX_SEARCH_SERVICE    the Cortex Search service over KG_CHUNK, e.g. KG_CHUNK_SEARCH
 //
 // Usage: bun scripts/deploy-snowflake.ts [snow app deploy options, e.g. -c <connection>]
 import { spawnSync } from "node:child_process";
@@ -84,6 +88,12 @@ async function accountAppYml(file: string): Promise<string> {
       if (variable.get("name") === "FLAKEGRAPH_SNOWFLAKE_WAREHOUSE") {
         variable.set("value", warehouse);
       }
+    }
+  }
+  for (const name of ["FLAKEGRAPH_ASK_CORTEX_MODEL", "FLAKEGRAPH_ASK_READER_CORTEX_MODEL", "FLAKEGRAPH_CORTEX_SEARCH_SERVICE"]) {
+    const value = process.env[name]?.trim();
+    if (value) {
+      document.addIn(["environment_variables"], { name, value });
     }
   }
   // Only ever named here: who administers a console is the account's business.

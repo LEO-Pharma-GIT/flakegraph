@@ -1,5 +1,6 @@
 import "server-only";
 
+import { readFile } from "node:fs/promises";
 import { createAzure } from "@ai-sdk/azure";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { SharedV4ProviderOptions as ProviderOptions } from "@ai-sdk/provider";
@@ -26,7 +27,7 @@ import {
 
 export interface AskModel {
   languageModel: LanguageModel;
-  provider: "azure" | "openai" | "ollama";
+  provider: "azure" | "openai" | "ollama" | "snowflake";
   modelId: string;
   billed: boolean;
   /**
@@ -142,6 +143,37 @@ function hostedModel(
   return { languageModel: openai.chat(model), provider: "openai", modelId: model, billed: true, structuredOptions: structured };
 }
 
+/**
+ * A Cortex model, inside Snowflake: Cortex Chat Completions is OpenAI-compatible
+ * and takes tools, and the service authenticates with its own OAuth token, read
+ * afresh for every call since the platform rotates it. Null outside Snowflake
+ * (no SNOWFLAKE_HOST) or when no model is named.
+ */
+export function snowflakeCortexModel(
+  env: Record<string, string | undefined>,
+  model: string | undefined,
+  structured: AskModel["structuredOptions"],
+): AskModel | null {
+  const host = env.SNOWFLAKE_HOST?.trim();
+  if (!model || !host) {
+    return null;
+  }
+  const tokenPath = env.FLAKEGRAPH_SNOWFLAKE_TOKEN_PATH?.trim() || "/snowflake/session/token";
+  const cortex = createOpenAI({
+    baseURL: `https://${host}/api/v2/cortex/v1`,
+    // Replaced below by the service's token; the client only needs one to be set.
+    apiKey: "snowflake-session",
+    fetch: async (input, init) => {
+      const token = (await readFile(tokenPath, "utf8")).trim();
+      const headers = new Headers(init?.headers);
+      headers.set("Authorization", `Bearer ${token}`);
+      headers.set("X-Snowflake-Authorization-Token-Type", "OAUTH");
+      return fetch(input, { ...init, headers });
+    },
+  });
+  return { languageModel: cortex.chat(model), provider: "snowflake", modelId: model, billed: true, structuredOptions: structured };
+}
+
 let cachedReader: AskModel | null | undefined;
 
 /**
@@ -157,6 +189,11 @@ export function resolveReaderModel(): AskModel | null {
     return cachedReader;
   }
   const env = askEnv();
+  const cortexReader = first(env, ["FLAKEGRAPH_ASK_READER_CORTEX_MODEL"]);
+  if (cortexReader) {
+    cachedReader = snowflakeCortexModel(env, cortexReader, readerStructured(env));
+    return cachedReader;
+  }
   const model = first(env, ["FLAKEGRAPH_ASK_READER_MODEL"]);
   cachedReader = model
     ? hostedModel(env, {
@@ -182,6 +219,10 @@ export function askModelConfigured(): boolean {
 function loadAskModel(): AskModel | null {
   const env = askEnv();
   const structured = structuredOptions(env);
+  const cortex = snowflakeCortexModel(env, first(env, ["FLAKEGRAPH_ASK_CORTEX_MODEL"]), structured);
+  if (cortex) {
+    return cortex;
+  }
   const hosted = hostedModel(env, {
     key: first(env, ASK_KEY_VARIABLES),
     base: first(env, ASK_BASE_VARIABLES),

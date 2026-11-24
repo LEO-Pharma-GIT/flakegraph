@@ -280,6 +280,20 @@ def test_render_snowflake_objects_sql_omits_admin_statements() -> None:
     assert sql.index("USE SCHEMA GRAPH") < sql.index("CREATE TABLE IF NOT EXISTS KG_JOB")
 
 
+def test_a_search_service_is_created_only_where_it_is_named_with_a_warehouse() -> None:
+    def sql(**snowflake: str | None) -> str:
+        return render_snowflake_objects_sql(_settings({"snowflake": snowflake}))
+
+    assert "CORTEX SEARCH SERVICE" not in sql(warehouse="KG_WH")
+    assert "CORTEX SEARCH SERVICE" not in sql(warehouse=None, cortex_search_service="KG_SEARCH")
+    named = sql(warehouse="KG_WH", cortex_search_service="KG_SEARCH")
+    assert "CREATE CORTEX SEARCH SERVICE IF NOT EXISTS KG_SEARCH" in named
+    assert "WAREHOUSE = KG_WH" in named
+    assert named.index("CREATE TABLE IF NOT EXISTS KG_CHUNK") < named.index("CORTEX SEARCH SERVICE")
+    with pytest.raises(ValueError, match="Cortex Search service"):
+        sql(warehouse="KG_WH", cortex_search_service="KG_SEARCH; DROP TABLE KG_CHUNK")
+
+
 def test_render_snowflake_image_reference_accepts_slash_repository_path() -> None:
     settings = _settings({"snowflake": {"image_repository": "/KG_DB/GRAPH/KG_IMAGES"}})
 

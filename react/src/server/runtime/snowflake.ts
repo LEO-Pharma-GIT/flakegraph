@@ -53,6 +53,8 @@ import {
 import { ControlPlaneError, forbidden, fromCause, invalid, notFound, notSupported } from "../protocol/errors";
 import type { GraphAccessPlane, GraphLoadOptions, ModelChoices, SnowflakePublishing, StageChoice, StageFolder } from "../protocol/runtime";
 import { cortexModelChoices, documentStageChoices, readableStageFolders } from "../snowflake/choices";
+import { cortexSearch } from "../snowflake/cortex-search";
+import { attachExternalSearch } from "../graph-retrieval";
 import { embeddingDimension } from "../providers";
 import {
   listLocalObjects,
@@ -79,6 +81,8 @@ import {
   REQUIRED_TABLES,
   REVIEW_RECORD_TABLES,
   REVIEW_TABLE_LIMITS,
+  RETRIEVAL_CHUNK_QUERY,
+  RETRIEVAL_NODE_QUERY,
   RUN_REPORT_QUERY,
   graphCountQuery,
   reviewEdgeQuery,
@@ -207,7 +211,12 @@ const discoveryCaches = new WeakMap<SnowflakeSql, Map<string, Cached>>();
  */
 export class SnowflakeRuntime implements GraphAccessPlane {
   readonly runtime = "snowflake" as const;
-  readonly capabilities = new Set<Capability>(SNOWFLAKE_CAPABILITIES);
+  // Questions are offered once a Cortex model is named for them (see docs/ask-on-snowflake.md).
+  readonly capabilities = new Set<Capability>([
+    ...SNOWFLAKE_CAPABILITIES,
+    // Snowflake's ingress ends a request after about 90 seconds, so an answer is a polled job.
+    ...(process.env.FLAKEGRAPH_ASK_CORTEX_MODEL?.trim() ? (["ask", "ask_polled"] as const) : []),
+  ]);
   private viewerPromise: Promise<Viewer> | null = null;
   private namespacePromise: Promise<SnowflakeNamespace> | null = null;
 
@@ -360,14 +369,15 @@ export class SnowflakeRuntime implements GraphAccessPlane {
    * boundary: the viewer's role on it gates the open itself. The location means
    * nothing here, since a graph is its rows rather than a directory.
    */
-  loadGraph(_location: string, graphId?: string | null, _options?: GraphLoadOptions): Effect.Effect<GraphDataset, ControlPlaneError> {
+  loadGraph(_location: string, graphId?: string | null, options?: GraphLoadOptions): Effect.Effect<GraphDataset, ControlPlaneError> {
     return this.attempt(async () => {
       const target = graphId?.trim();
       if (!target) {
         throw forbidden("A stored graph is opened through its run, or with its graph id.");
       }
       await this.roleOrFail(target, "read");
-      return this.readGraph(target);
+      const dataset = await this.readGraph(target);
+      return options?.purpose === "retrieval" ? this.withRetrievalRows(target, dataset) : dataset;
     }, "Unable to load Snowflake graph");
   }
 
@@ -1832,6 +1842,24 @@ export class SnowflakeRuntime implements GraphAccessPlane {
       runReport,
       graphMetrics: { ...variantMapping(metricsRows[0]?.metrics) },
     };
+  }
+
+  /**
+   * What answering questions reads beyond a review: every chunk's text and
+   * place (without its vector), and every entity with its aliases and the
+   * chunks it was found in, so passages can be searched and expanded and a
+   * question's entities lead to their documents. Passage search by meaning is
+   * Cortex Search's, when a service is named (FLAKEGRAPH_CORTEX_SEARCH_SERVICE).
+   */
+  private async withRetrievalRows(graphId: string, dataset: GraphDataset): Promise<GraphDataset> {
+    const chunks = (await this.sql.query(RETRIEVAL_CHUNK_QUERY, [graphId])).map(withoutEmbedding);
+    const nodes = (await this.sql.query(RETRIEVAL_NODE_QUERY, [graphId])).map(withoutEmbedding);
+    const retrieval = { ...dataset, chunks, nodes };
+    const service = process.env.FLAKEGRAPH_CORTEX_SEARCH_SERVICE?.trim();
+    if (service) {
+      attachExternalSearch(retrieval, cortexSearch(this.sql, service, graphId));
+    }
+    return retrieval;
   }
 
   /** Put what each relation's observations state on the edge a review reads it from, as a stored graph's are. */

@@ -92,7 +92,7 @@ export interface ApiEndpoint {
   /** A tRPC procedure's dotted path, or a route's path under the origin. */
   name: string;
   /** A procedure's kind (queries are GET, mutations POST), or the HTTP method a route answers. */
-  kind: "query" | "mutation" | "GET" | "POST";
+  kind: "query" | "mutation" | "GET" | "POST" | "DELETE";
   area: ApiArea;
   access: ApiAccess;
   /** What the caller must be on the graph the call touches, where it touches one. */
@@ -796,6 +796,37 @@ export const CONTROL_PLANE_ENDPOINTS: readonly ApiEndpoint[] = [
     returns: "An AI SDK UI message stream, or NDJSON events: status, tool, text, citation, then one done or one error",
     limits:
       "404 for a run the caller cannot read, 409 unless it finished. Without a configured model the graph answers with its own matching text. A question may run for up to 20 minutes.",
+  },
+  {
+    name: "/api/ask/jobs",
+    kind: "POST",
+    area: "rest",
+    access: "write",
+    graph: "read",
+    purpose: "Start answering a question as a job, for a console whose ingress ends requests before an answer is done.",
+    input: "POST /api/ask's body",
+    returns: "202 { jobId }; 429 while the caller already has four questions running",
+    limits: "Jobs live in the console's memory and are dropped an hour after they were last read.",
+  },
+  {
+    name: "/api/ask/jobs/{id}",
+    kind: "GET",
+    area: "rest",
+    access: "read",
+    purpose: "What a question's job streamed since ?after= characters.",
+    input: "after (query): characters already read",
+    returns: "{ status, contentType, text, next, done }: text is what POST /api/ask would have streamed",
+    limits: "404 for a job that is not the caller's.",
+  },
+  {
+    name: "/api/ask/jobs/{id}",
+    kind: "DELETE",
+    area: "rest",
+    access: "read",
+    purpose: "Stop a question's job nobody waits for any more.",
+    input: "none",
+    returns: "204, or 404 for a job that is not the caller's",
+    limits: "Only the job's owner may stop it.",
   },
   {
     name: "/api/graphs",

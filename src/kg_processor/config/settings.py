@@ -749,6 +749,16 @@ class SnowflakeSettings(_SettingsModel):
     schema_name: str | None = Field(default=None, alias="schema")
     role: str | None = None
     warehouse: str | None = None
+    # The Cortex Search service over KG_CHUNK that the console's Ask searches
+    # passages through inside Snowflake, by words and meaning (one per schema,
+    # filtered by graph). The setup SQL creates it when both this and a
+    # warehouse are named; it is billed for as long as it exists, so empty, the
+    # default, creates none.
+    cortex_search_service: str = ""
+    # Its embedding model; fixed once the service exists.
+    cortex_search_embedding_model: str = "snowflake-arctic-embed-l-v2.0"
+    # How far behind the chunk table the service may lag.
+    cortex_search_target_lag: str = "1 hour"
     stage: str | None = None
     bulk_stage: str | None = None
     image_repository: str | None = None

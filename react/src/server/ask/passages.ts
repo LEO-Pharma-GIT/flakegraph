@@ -1,5 +1,5 @@
 import { documentNameIndex, evidenceDocumentId } from "@/lib/evidence";
-import { isStructuredBlockKind, retrievalSource, type StructuredBlockKind } from "../graph-retrieval";
+import { externalSearch, isStructuredBlockKind, retrievalSource, type ExternalSearch, type StructuredBlockKind } from "../graph-retrieval";
 import type { GraphDataset } from "../protocol/schema";
 import { Bm25Index } from "./bm25";
 import {
@@ -68,6 +68,8 @@ interface PassageIndex {
   next: Int32Array;
   /** Block id to its kind, for the run's table, chart and figure blocks. */
   structuredBlocks: Map<string, StructuredBlockKind>;
+  /** Chunk id to its position, built when a runtime's own search first needs it. */
+  positionOf?: Map<string, number>;
 }
 
 // Keyed by the dataset a graph was loaded as, so a graph's index is built on
@@ -139,14 +141,17 @@ export async function searchPassages(dataset: GraphDataset, options: PassageSear
   const allow = admission(dataset, index, options);
   const lexical = index.bm25.search(options.query, PASSAGE_FUSION_DEPTH, allow).map((item) => item.position);
   const embedding = options.embedding === undefined ? resolveAskEmbedding() : options.embedding;
-  const dense = (
-    await denseRanking(dataset, options.query, {
-      embedding,
-      limit: PASSAGE_FUSION_DEPTH,
-      allow,
-      abortSignal: options.abortSignal,
-    })
-  )?.map((item) => item.position);
+  const external = externalSearch(dataset);
+  const dense = external
+    ? await externalRanking(index, external, options, allow)
+    : (
+        await denseRanking(dataset, options.query, {
+          embedding,
+          limit: PASSAGE_FUSION_DEPTH,
+          allow,
+          abortSignal: options.abortSignal,
+        })
+      )?.map((item) => item.position);
   const topK = options.topK ?? PASSAGE_DEFAULT_TOP_K;
   const ranked = dense ? fuseRankings([lexical, dense], topK, RRF_K) : lexical.slice(0, topK);
   const lexicalSet = new Set(lexical);
@@ -157,6 +162,34 @@ export async function searchPassages(dataset: GraphDataset, options: PassageSear
     passages: buildPassages(dataset, index, ranked, method, options.expand ?? false),
     retrieval: dense ? "hybrid" : "bm25",
   };
+}
+
+/**
+ * The chunks a runtime's own search by meaning ranks for the query, as
+ * positions, within what the search may return; null when it fails, so the
+ * search falls back to words alone rather than failing.
+ */
+async function externalRanking(
+  index: PassageIndex,
+  search: ExternalSearch,
+  options: PassageSearchOptions,
+  allow: ((chunk: number) => boolean) | undefined,
+): Promise<number[] | null> {
+  index.positionOf ??= new Map(index.chunkIds.map((id, position) => [id, position]));
+  try {
+    const ids = await search(options.query, {
+      limit: PASSAGE_FUSION_DEPTH,
+      ...(options.documentIds ? { documentIds: options.documentIds } : {}),
+      ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
+    });
+    return ids.flatMap((id) => {
+      const position = index.positionOf!.get(id);
+      return position != null && (!allow || allow(position)) ? [position] : [];
+    });
+  } catch (error) {
+    console.warn(`Ask: passage search by meaning failed; searching by words alone: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
 }
 
 /** Which chunks a search may return: those of the allowed documents, and of the allowed chunks. */

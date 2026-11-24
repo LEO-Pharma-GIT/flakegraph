@@ -318,8 +318,8 @@ How the running console uses the account:
 - What the console keeps for itself rather than in `KG_*` tables lives on that
   disk too and goes when the service restarts: API keys, uploaded gold files,
   saved perspectives and reviews.
-- Graph questions need a model the question pipeline can call, and it does not
-  call Cortex, so the Ask tab is not offered.
+- Graph questions are offered once `FLAKEGRAPH_ASK_CORTEX_MODEL` names a Cortex
+  model to answer with; see [ask-on-snowflake.md](ask-on-snowflake.md).
 - The service suspends after an hour without requests and resumes on the next
   one.
 

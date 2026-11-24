@@ -232,7 +232,7 @@ describe("graph tables", () => {
       path.resolve(import.meta.dirname, "../../../../src/kg_processor/application/snowflake_schema.py"),
       "utf8",
     );
-    const owning = [...schema.matchAll(/CREATE TABLE IF NOT EXISTS (KG_\w+) \(([^;]*)\);/g)]
+    const owning = [...schema.matchAll(/CREATE TABLE IF NOT EXISTS (KG_\w+) \(([^;]*)\)(?: [A-Z_]+ = \w+)*;/g)]
       .filter(([, , body]) => /^\s*GRAPH_ID /m.test(body ?? ""))
       .map(([, table]) => table)
       .sort();
