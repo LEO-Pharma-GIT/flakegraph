@@ -44,6 +44,17 @@ describe("classifyQuestion", () => {
     expect(spansDocuments(scope)).toBe(true);
   });
 
+  it("keeps a reply that lists more or longer assumptions than asked, cut to the limits", async () => {
+    const assumptions = ["a", "b", "c", "d", "e", "f"].map((name) => `Trial ${name} measured yield${" again".repeat(60)}`);
+    reply = JSON.stringify({ scope: "several_documents", assumptions, counts: true });
+    const scope = await classifyQuestion("How many trials measured yield?");
+
+    expect(scope.scope).toBe("several_documents");
+    expect(scope.counts).toBe(true);
+    expect(scope.assumptions).toHaveLength(5);
+    expect(scope.assumptions.every((item) => item.length <= 240)).toBe(true);
+  });
+
   it("answers other when the model fails, which changes nothing downstream", async () => {
     reply = new Error("engine unavailable");
     const scope = await classifyQuestion("What is a trial?");
