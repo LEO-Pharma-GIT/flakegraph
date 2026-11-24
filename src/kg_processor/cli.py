@@ -804,6 +804,81 @@ def distributed_publish(
     )
 
 
+@distributed_app.command("reembed")
+def distributed_reembed(
+    run_id: Annotated[str, typer.Option("--run-id")],
+    config: Annotated[Path | None, typer.Option("--config", "-c")] = None,
+    concurrency: Annotated[int, typer.Option("--concurrency", min=1)] = 8,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Embed again even when the graph records the model already."),
+    ] = False,
+) -> None:
+    """Embed a completed fleet graph again with the configured embedding model.
+
+    Chunks, entities, relations and communities get new vectors from the same
+    text the finalizer embedded; nothing else changes. The new files are
+    written beside the old ones and the run's graph manifest is replaced by one
+    naming them, the previous kept in the artifact's metadata. A console's
+    local copy of the graph must be exported again to see the new vectors.
+    """
+
+    from kg_processor.application.reembed import reembed_manifest
+    from kg_processor.factories import build_distributed_store, build_embedding_provider
+    from kg_processor.ports.embeddings import EmbedOptions
+
+    settings = Settings.load(config)
+    result = _final_graph_result(settings, run_id)
+    if isinstance(result, GraphWriteBatch):
+        raise typer.BadParameter(
+            "only a graph published as a dataset manifest can be embedded again"
+        )
+    manifest, reader = result
+    options = EmbedOptions(
+        model=settings.embedding.model,
+        dimension=settings.embedding.dimension,
+        batch_size=settings.embedding.batch_size,
+    )
+    recorded = (manifest.metrics.get("embedding") or {}).get("model")
+    if recorded == options.model and not force:
+        _echo_json(
+            {"run_id": run_id, "graph_id": manifest.graph_id, "model": recorded, "changed": False}
+        )
+        return
+    updated = reembed_manifest(
+        manifest,
+        reader.blob_store,
+        build_embedding_provider(settings),
+        options,
+        concurrency=concurrency,
+        progress=lambda message: typer.echo(message, err=True),
+    )
+    store = build_distributed_store(settings)
+    snapshot = store.get_run(run_id)
+    final = next(
+        task
+        for task in snapshot.tasks
+        if task.task.stage == TaskStage.FINALIZE_GRAPH and task.status == TaskStatus.SUCCEEDED
+    )
+    store.replace_artifact_payload(
+        final.output_artifact_ids[0], updated.model_dump_json().encode("utf-8")
+    )
+    _echo_json(
+        {
+            "run_id": run_id,
+            "graph_id": manifest.graph_id,
+            "model": options.model,
+            "previous_model": recorded,
+            "changed": True,
+            "rows": {
+                name: updated.tables[name].row_count
+                for name in ("chunks", "nodes", "edges", "communities")
+                if name in updated.tables
+            },
+        }
+    )
+
+
 @app.command()
 def worker(
     config: Annotated[Path | None, typer.Option("--config", "-c")] = None,

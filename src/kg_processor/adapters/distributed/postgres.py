@@ -14,7 +14,7 @@ from collections import deque
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from threading import Lock
 from typing import Any, cast
 from uuid import uuid4
@@ -2267,6 +2267,74 @@ class PostgresDistributedStore:
             if row is None:
                 raise RuntimeError(f"failed to persist artifact {artifact_id}")
             return _artifact_ref(row)
+
+    def replace_artifact_payload(self, artifact_id: str, payload: bytes) -> StoredArtifact:
+        """Give an existing artifact new bytes, keeping the previous ones recoverable.
+
+        Only for maintenance that rewrites what a finished run published - a
+        graph embedded again with another model - where every reference to the
+        artifact (the run's final task, its graph version and head) must keep
+        pointing at it. The new bytes go to a new object; the previous storage
+        location, checksum and size are kept in the artifact's metadata under
+        ``replaced``, newest first, so restoring them undoes the change.
+        """
+
+        if len(payload) > self.max_artifact_bytes:
+            raise ValueError(
+                f"artifact payload exceeds configured {self.max_artifact_bytes}-byte limit"
+            )
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM flakegraph_artifact WHERE id = %s FOR UPDATE",
+                (artifact_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown distributed artifact: {artifact_id}")
+            checksum = sha256_hex(payload)
+            storage_uri: str | None = None
+            database_payload: bytes | None
+            if self.blob_store is None:
+                database_payload = zlib.compress(payload, self.compression_level)
+                compression = "zlib"
+            else:
+                suffix = _artifact_suffix(str(row["media_type"]))
+                storage_uri = self.blob_store.put(
+                    f"{row['run_id']}/{row['kind']}/{artifact_id}-{checksum[:16]}{suffix}",
+                    payload,
+                    str(row["media_type"]),
+                )
+                database_payload = None
+                compression = "none"
+            previous = {
+                "checksum": row["checksum"],
+                "size_bytes": row["size_bytes"],
+                "compression": row["compression"],
+                "storage_uri": row["storage_uri"],
+                "payload_zlib_hex": bytes(row["payload"]).hex()
+                if row["payload"] is not None
+                else None,
+                "replaced_at": datetime.now(UTC).isoformat(),
+            }
+            metadata = dict(row["metadata_json"] or {})
+            metadata["replaced"] = [previous, *metadata.get("replaced", [])]
+            connection.execute(
+                """
+                UPDATE flakegraph_artifact
+                SET checksum = %s, size_bytes = %s, compression = %s, payload = %s,
+                    storage_uri = %s, metadata_json = %s
+                WHERE id = %s
+                """,
+                (
+                    checksum,
+                    len(payload),
+                    compression,
+                    database_payload,
+                    storage_uri,
+                    Jsonb(metadata),
+                    artifact_id,
+                ),
+            )
+        return self.get(artifact_id)
 
     def _ensure_known_run_id(self, run_id: str) -> None:
         """Validate an uncached artifact owner once without racing staging threads."""
