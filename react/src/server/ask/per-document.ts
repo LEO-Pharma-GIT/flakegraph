@@ -59,6 +59,8 @@ export interface PerDocumentSource {
   card: string | null;
   /** The folder the document sits in: documents of one folder are usually one study, project or case. */
   group: string | null;
+  /** The document's card record on one line - date, who prepared it and for whom, places, sample - when it has one. */
+  record?: string | null;
   passages: DocumentPassage[];
 }
 
@@ -73,6 +75,8 @@ export interface DocumentFinding {
   documentId: string;
   documentName: string;
   group?: string | null;
+  /** The document's card record on one line, when it has one. */
+  record?: string;
   relevant: boolean;
   answer: string;
   /** Each fact with the exact words of the document it rests on. */
@@ -236,7 +240,12 @@ async function readOne(
   signal: AbortSignal | undefined,
   assumptions: readonly string[],
 ): Promise<DocumentFinding> {
-  const base = { documentId: source.documentId, documentName: source.documentName, group: source.group };
+  const base = {
+    documentId: source.documentId,
+    documentName: source.documentName,
+    group: source.group,
+    ...(source.record ? { record: source.record } : {}),
+  };
   if (!source.card && source.passages.length === 0) {
     return { ...base, relevant: false, answer: "", facts: [] };
   }
@@ -326,7 +335,11 @@ export function renderFindings(findings: DocumentFinding[]): string {
       lines.push("", `## Folder: ${group} (${members.length} document${members.length === 1 ? "" : "s"})`);
     }
     for (const finding of members) {
-      lines.push("", `${grouped ? "###" : "##"} ${finding.documentName} (${finding.documentId})`, finding.answer);
+      lines.push("", `${grouped ? "###" : "##"} ${finding.documentName} (${finding.documentId})`);
+      if (finding.record) {
+        lines.push(`Record: ${finding.record}`);
+      }
+      lines.push(finding.answer);
       for (const fact of finding.facts) {
         const page = fact.page != null ? `[p${fact.page}] ` : "";
         const quote = fact.quote.trim() ? ` - "${fact.quote.trim()}"` : "";
