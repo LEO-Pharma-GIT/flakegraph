@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from itertools import batched
@@ -103,6 +104,7 @@ def generate_community_reports(
     model: str = "default",
     timeout_seconds: int = DEFAULT_LLM_TIMEOUT_SECONDS,
     seed: int | None = None,
+    write_reports: bool = True,
 ) -> CommunityReportResult:
     """Generate stable community artifacts and LLM-authored narrative findings.
 
@@ -123,15 +125,22 @@ def generate_community_reports(
     )
     if report_progress is not None:
         report_progress(0, len(contexts))
-    summaries = _summarize_communities(
-        contexts,
-        llm,
-        report_parallelism,
-        report_progress,
-        model,
-        timeout_seconds,
-        seed,
-    )
+    if write_reports:
+        summaries = _summarize_communities(
+            contexts,
+            llm,
+            report_parallelism,
+            report_progress,
+            model,
+            timeout_seconds,
+            seed,
+        )
+    else:
+        summaries = [
+            (context, structural_community_summary(context.request)) for context in contexts
+        ]
+        if report_progress is not None:
+            report_progress(len(contexts), len(contexts))
     communities: list[Community] = []
     findings: list[CommunityFinding] = []
     trace_events: list[dict[str, Any]] = []
@@ -294,6 +303,51 @@ def _summarize_communities(
         for batch, results in zip(context_batches, summaries, strict=True)
         for context, result in zip(batch, results, strict=True)
     ]
+
+
+_MEMBER_LINE = re.compile(r"^(?P<name>.*?) \[(?P<type>[^\]]*)\] degree=(?P<degree>\d+)")
+_STRUCTURAL_TITLE_MEMBERS = 3
+_STRUCTURAL_SUMMARY_MEMBERS = 8
+
+
+def structural_community_summary(request: CommunitySummaryRequest) -> CommunitySummaryResult:
+    """A community described from its members and links alone, with no model call.
+
+    The title names its most connected members; the summary counts its members
+    by type and lists the best connected, so a search by name or type still
+    finds the community and a reader sees what it gathers.
+    """
+
+    members: list[tuple[str, str, int]] = []
+    for line in request.members:
+        match = _MEMBER_LINE.match(line)
+        if match:
+            members.append((match["name"], match["type"], int(match["degree"])))
+    members.sort(key=lambda member: (-member[2], member[0].lower()))
+    names = [name for name, _type, _degree in members]
+    title = ", ".join(names[:_STRUCTURAL_TITLE_MEMBERS]) or request.title_seed
+    if len(names) > _STRUCTURAL_TITLE_MEMBERS:
+        title += f" and {len(names) - _STRUCTURAL_TITLE_MEMBERS} more"
+    types: dict[str, int] = {}
+    for _name, kind, _degree in members:
+        types[kind] = types.get(kind, 0) + 1
+    by_type = ", ".join(
+        f"{count} {kind}"
+        for kind, count in sorted(types.items(), key=lambda item: (-item[1], item[0]))
+    )
+    summary = (
+        f"{len(members) or len(request.members)} entities ({by_type or 'untyped'}) linked by "
+        f"{len(request.relations)} relations. Most connected: "
+        f"{', '.join(names[:_STRUCTURAL_SUMMARY_MEMBERS])}."
+    )
+    return CommunitySummaryResult(
+        title=title,
+        summary=summary,
+        rating=0.0,
+        rating_explanation="Described from its structure; no narrative report was written.",
+        findings=[],
+        suggested_questions=[],
+    )
 
 
 def _summarize_batch(

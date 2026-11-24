@@ -626,7 +626,9 @@ Finalization turns mergeable observations into a graph:
    structure.
 7. Merge source-specific descriptions and generate embeddings for retrieval.
 8. Detect communities from canonical relations plus a bounded, linear-size
-   co-mention topology; generate grounded reports and embed those reports.
+   co-mention topology, describe each from its members and links, and embed the
+   descriptions. `graph.community_reports` (off by default) has a model write a
+   grounded report of each community instead.
 9. Run evidence, endpoint, ontology, uniqueness, and structural quality checks.
 10. Publish a complete graph version atomically, so readers never observe a
     partially finalized graph.

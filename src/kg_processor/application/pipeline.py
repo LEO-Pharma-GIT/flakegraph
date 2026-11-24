@@ -1345,6 +1345,7 @@ class KgProcessorPipeline:
             timeout_seconds=self.settings.llm.timeout_seconds,
             algorithm=self.settings.graph.community_algorithm,
             structural_relation_types=structural_relation_types(self._ontology().profile),
+            write_reports=self.settings.graph.community_reports,
         )
         communities = community_result.communities
         findings = community_result.findings
