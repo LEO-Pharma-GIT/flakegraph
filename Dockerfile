@@ -15,7 +15,7 @@ FROM registry.k8s.io/kubectl:${KG_KUBECTL_VERSION} AS kubectl
 # runtime copied below. Building it in its own stage keeps its toolchain out of
 # the image everything else runs; the standalone output it produces carries the
 # server and the exact node_modules it traced, nothing more.
-FROM oven/bun:1.3-slim@sha256:d56a2534ffd262e92c12fd3249d3924d296d97086da773f821d7d0477435ea04 AS console-build
+FROM oven/bun:1.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS console-build
 WORKDIR /console
 COPY react/package.json react/bun.lock ./
 # A build host whose egress is TLS-intercepted hands its trust bundle in as a
