@@ -112,8 +112,9 @@ class _SlotStore:
         retry_delay: timedelta,
         *,
         claim_token: str,
+        spend_attempt: bool = True,
     ) -> None:
-        del worker_id, retry_delay
+        del worker_id, retry_delay, spend_attempt
         with self._lock:
             self.failed[task_id] = error
 

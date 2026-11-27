@@ -5,13 +5,18 @@ from __future__ import annotations
 
 import base64
 import hashlib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, BinaryIO
 from urllib.parse import quote, unquote, urlparse
 
 import boto3
 from botocore.config import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, ConnectionClosedError
+from botocore.exceptions import ConnectionError as EndpointUnreachableError
+
+from kg_processor.ports.blob_store import BlobStoreUnavailableError
 
 if TYPE_CHECKING:
     from mypy_boto3_s3.client import S3Client
@@ -101,30 +106,33 @@ class S3BlobStore:
         """Write immutable bytes at a deterministic key and return an S3 URI."""
 
         object_key = self._object_key(key)
-        self.client.put_object(
-            Bucket=self.bucket,
-            Key=object_key,
-            Body=payload,
-            ContentType=media_type,
-        )
+        with _reachable():
+            self.client.put_object(
+                Bucket=self.bucket,
+                Key=object_key,
+                Body=payload,
+                ContentType=media_type,
+            )
         return f"s3://{self.bucket}/{quote(object_key, safe='/')}"
 
     def get(self, uri: str) -> bytes:
         """Read exact bytes after verifying that the URI belongs to this bucket."""
 
         bucket, key = self._parse_uri(uri)
-        response = self.client.get_object(Bucket=bucket, Key=key)
-        body = response["Body"]
-        try:
-            return bytes(body.read())
-        finally:
-            body.close()
+        with _reachable():
+            response = self.client.get_object(Bucket=bucket, Key=key)
+            body = response["Body"]
+            try:
+                return bytes(body.read())
+            finally:
+                body.close()
 
     def download_to(self, uri: str, destination: BinaryIO) -> None:
         """Stream an owned object through boto3's bounded transfer helper."""
 
         bucket, key = self._parse_uri(uri)
-        self.client.download_fileobj(bucket, key, destination)
+        with _reachable():
+            self.client.download_fileobj(bucket, key, destination)
 
     def delete_prefix(self, prefix: str) -> int:
         """Delete every object under ``<root prefix>/<prefix>/``, a page at a time."""
@@ -169,6 +177,22 @@ class S3BlobStore:
         if not key:
             raise ValueError("artifact storage URI is missing an object key")
         return parsed.netloc, key
+
+
+@contextmanager
+def _reachable() -> Iterator[None]:
+    """Report an object store that cannot be reached as an outage, not a failure.
+
+    Botocore has already retried the connection by the time it raises, so the
+    endpoint is down or restarting: the work that met it is not at fault. A
+    read that times out on a reachable store stays an ordinary failure, so an
+    object that is always too slow to read cannot be retried for ever.
+    """
+
+    try:
+        yield
+    except (EndpointUnreachableError, ConnectionClosedError) as exc:
+        raise BlobStoreUnavailableError(f"object store unreachable: {exc}") from exc
 
 
 def _add_content_md5(request: Any, **_: Any) -> None:

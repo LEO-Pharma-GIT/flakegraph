@@ -82,6 +82,7 @@ from kg_processor.domain.stages import (
     RevalidationWindowShard,
 )
 from kg_processor.ports.artifact_store import ArtifactStore
+from kg_processor.ports.blob_store import BlobStoreUnavailableError
 from kg_processor.ports.distributed_pipeline import DistributedPipeline
 from kg_processor.ports.graph_manifest_publisher import GraphManifestPublisher
 from kg_processor.ports.task_store import TaskStore, TaskStoreUnavailableError
@@ -346,6 +347,9 @@ class DistributedWorker:
                     error,
                     self.retry_delay,
                     claim_token=lease.claim_token,
+                    # A storage node restarting is no fault of the task's: it
+                    # waits the outage out instead of failing the run.
+                    spend_attempt=not isinstance(exc, BlobStoreUnavailableError),
                 )
             except TaskStoreUnavailableError:
                 # The caller owns coordination outages and retries after

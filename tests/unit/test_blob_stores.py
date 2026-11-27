@@ -10,10 +10,11 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError
 
 from kg_processor.adapters.distributed.local_blob import LocalBlobStore
 from kg_processor.adapters.distributed.s3_blob import S3BlobStore, S3BlobStoreConfig
+from kg_processor.ports.blob_store import BlobStoreUnavailableError
 
 
 def test_local_blob_store_round_trips_and_rejects_path_escape(tmp_path: Path) -> None:
@@ -80,6 +81,30 @@ def test_s3_blob_store_percent_encodes_uri_reserved_key_characters(monkeypatch: 
 
 class _MemoryS3Body(BytesIO):
     """Provide the streaming-body close/read interface used by the adapter."""
+
+
+def test_s3_blob_store_reports_an_unreachable_endpoint_as_an_outage(monkeypatch: Any) -> None:
+    """Workers wait out a store that cannot be reached instead of failing on it."""
+
+    client = _MemoryS3Client()
+    monkeypatch.setattr(
+        "kg_processor.adapters.distributed.s3_blob.boto3.client",
+        lambda *_args, **_kwargs: client,
+    )
+    store = S3BlobStore(S3BlobStoreConfig(root_uri="s3://flakegraph/prefix"))
+    store.initialize()
+    uri = store.put("run/part.json", b"payload", "application/json")
+
+    def unreachable(**_kwargs: Any) -> None:
+        raise EndpointConnectionError(endpoint_url="http://object-store:9000")
+
+    monkeypatch.setattr(client, "get_object", unreachable)
+    monkeypatch.setattr(client, "put_object", unreachable)
+
+    with pytest.raises(BlobStoreUnavailableError, match="unreachable"):
+        store.get(uri)
+    with pytest.raises(BlobStoreUnavailableError):
+        store.put("run/other.json", b"payload", "application/json")
 
 
 class _MemoryS3Client:
