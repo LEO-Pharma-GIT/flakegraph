@@ -139,8 +139,13 @@ class TaskStore(Protocol):
         retry_delay: timedelta,
         *,
         claim_token: str,
+        spend_attempt: bool = True,
     ) -> None:
-        """Record an error and either retry or terminally fail the owning run."""
+        """Record an error and either retry or terminally fail the owning run.
+
+        Without ``spend_attempt`` the task is only handed back, its attempt
+        returned: an outage it met is no fault of the task's, however long.
+        """
         ...
 
     def cancel_run(self, run_id: str) -> None:

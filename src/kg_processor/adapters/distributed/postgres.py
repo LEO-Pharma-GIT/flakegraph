@@ -1556,19 +1556,25 @@ class PostgresDistributedStore:
         retry_delay: timedelta,
         *,
         claim_token: str,
+        spend_attempt: bool = True,
     ) -> None:
-        """Retry an owned task within its budget or fail the run terminally."""
+        """Retry an owned task within its budget or fail the run terminally.
+
+        A task handed back without spending its attempt is queued again with
+        that attempt returned, so it can never exhaust its budget this way.
+        """
 
         if retry_delay < timedelta(0):
             raise ValueError("retry delay must not be negative")
         with self._connection() as connection:
             task = self._owned_task(connection, task_id, worker_id, claim_token)
-            exhausted = int(task["attempts"]) >= int(task["max_attempts"])
+            exhausted = spend_attempt and int(task["attempts"]) >= int(task["max_attempts"])
             next_status = TaskStatus.FAILED if exhausted else TaskStatus.QUEUED
             connection.execute(
                 """
                 UPDATE flakegraph_task
                 SET status = %s,
+                    attempts = attempts - %s,
                     available_at = CURRENT_TIMESTAMP + %s,
                     lease_owner = NULL,
                     lease_expires_at = NULL,
@@ -1577,7 +1583,14 @@ class PostgresDistributedStore:
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = %s
                 """,
-                (next_status.value, retry_delay, Jsonb(error), next_status.value, task_id),
+                (
+                    next_status.value,
+                    0 if spend_attempt else 1,
+                    retry_delay,
+                    Jsonb(error),
+                    next_status.value,
+                    task_id,
+                ),
             )
             if exhausted:
                 connection.execute(

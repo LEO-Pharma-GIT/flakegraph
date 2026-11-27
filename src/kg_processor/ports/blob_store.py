@@ -6,6 +6,15 @@ from __future__ import annotations
 from typing import BinaryIO, Protocol
 
 
+class BlobStoreUnavailableError(RuntimeError):
+    """Signal that the object store could not be reached at all.
+
+    An outage, such as a storage node restarting, says nothing about the work
+    that met it. Workers hand such work back without spending one of its
+    attempts, however long the outage lasts, rather than failing the run.
+    """
+
+
 class BlobStore(Protocol):
     """Store large immutable bytes outside the transactional task database.
 

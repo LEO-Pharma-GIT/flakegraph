@@ -2238,6 +2238,31 @@ def test_retry_uses_a_new_claim_token_when_the_attempt_budget_resets(
     store.complete_task(task.id, "worker", [], claim_token=second.claim_token)
 
 
+def test_a_task_handed_back_without_spending_its_attempt_never_fails_the_run(
+    isolated_postgres_dsn: str,
+) -> None:
+    """An outage may outlast every attempt; the task waits it out and runs again."""
+
+    store = _store(isolated_postgres_dsn)
+    run_id = f"run_{uuid4().hex}"
+    store.create_run(_run(run_id))
+    task = _task(run_id, "prepare", TaskStage.PREPARE_DOCUMENT, "file", max_attempts=1)
+    store.add_tasks(run_id, [task])
+    store.activate_run(run_id)
+    for _ in range(3):
+        lease = store.claim_task("worker", {task.stage}, timedelta(minutes=1))
+        assert lease is not None
+        assert lease.attempt == 1
+        store.fail_task(
+            task.id, "worker", {}, timedelta(0), claim_token=lease.claim_token, spend_attempt=False
+        )
+        assert store.get_run(run_id).run.status == RunStatus.RUNNING
+    lease = store.claim_task("worker", {task.stage}, timedelta(minutes=1))
+    assert lease is not None
+    store.fail_task(task.id, "worker", {}, timedelta(0), claim_token=lease.claim_token)
+    assert store.get_run(run_id).run.status == RunStatus.FAILED
+
+
 def test_durable_consumption_is_idempotent_and_scoped_to_the_run(
     isolated_postgres_dsn: str,
 ) -> None:

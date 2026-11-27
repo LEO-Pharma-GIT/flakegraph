@@ -100,6 +100,7 @@ from kg_processor.domain.stages import (
     RevalidationWindowShard,
     combine_extracted_shards,
 )
+from kg_processor.ports.blob_store import BlobStoreUnavailableError
 from kg_processor.ports.llm import (
     LlmCapabilities,
     StructuredCompletionRequest,
@@ -119,6 +120,8 @@ class MemoryDistributedStore:
         self.lease: TaskLease | None = None
         self.completed: list[tuple[str, str, list[str], list[TaskDefinition], str | None]] = []
         self.failed: list[tuple[str, str, dict[str, Any], timedelta]] = []
+        # Whether each failure spent its attempt, in the order of ``failed``.
+        self.attempts_spent: list[bool] = []
         self.progress_updates: list[tuple[str, str, TaskProgress]] = []
         self.served_configurations: dict[TaskStage, str] = {}
         self.initial_task_streams = 0
@@ -384,8 +387,10 @@ class MemoryDistributedStore:
         retry_delay: timedelta,
         *,
         claim_token: str,
+        spend_attempt: bool = True,
     ) -> None:
         self.failed.append((task_id, worker_id, error, retry_delay))
+        self.attempts_spent.append(spend_attempt)
 
     def claim_publication(
         self, worker_id: str, lease_duration: timedelta
@@ -1102,6 +1107,44 @@ class _FailingWindowPipeline(RecordingPipeline):
 
     def extract_window_entities(self, prepared: PreparedDocumentShard) -> EntityWindowShard:
         raise self.error
+
+
+@pytest.mark.parametrize(
+    ("error", "spent"),
+    [(BlobStoreUnavailableError("object store unreachable"), False), (ValueError("bad"), True)],
+)
+def test_an_unreachable_object_store_hands_the_task_back_without_spending_its_attempt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: Exception, spent: bool
+) -> None:
+    """A storage outage is no fault of the task's, so it may last any length of time.
+
+    Spending an attempt on it would fail the whole run once a storage node
+    restarts for longer than the task's few retries; any other error still
+    spends one.
+    """
+
+    settings = _settings(tmp_path)
+    store = _worker_store(settings)
+    task = _task(
+        TaskStage.EXTRACT_ENTITY_WINDOW,
+        payload={"window_artifact_id": "window"},
+        dependency_ids=["context"],
+    )
+    store.lease = _lease(task, {"context": ["context"]})
+
+    def unreachable(*_args: object) -> StoredArtifact:
+        raise error
+
+    monkeypatch.setattr(store, "get", unreachable)
+    monkeypatch.setattr(store, "get_many", unreachable)
+
+    result = _worker(
+        settings, store, RecordingPipeline(), TaskStage.EXTRACT_ENTITY_WINDOW
+    ).process_one()
+
+    assert result.succeeded is False
+    assert [failure[0] for failure in store.failed] == [task.id]
+    assert store.attempts_spent == [spent]
 
 
 @pytest.mark.parametrize(
