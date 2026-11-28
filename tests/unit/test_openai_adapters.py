@@ -96,6 +96,8 @@ def _vllm(url: str, headers: dict[str, str], payload: dict[str, Any]) -> httpx.R
     assert payload["model"] == "qwen2.5"
     assert payload["max_tokens"] == 16384
     assert payload["chat_template_kwargs"] == {"enable_thinking": False, "reasoning_effort": "none"}
+    # A model that thinks regardless still leaves the answer half the budget.
+    assert payload["thinking_token_budget"] == 8192
     return _chat(_ENTITIES)
 
 

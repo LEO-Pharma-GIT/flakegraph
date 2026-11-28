@@ -58,7 +58,7 @@ class VllmLocalLlmProvider(OpenAICompatibleLlmProvider):
             supports_images=True,
         )
 
-    def _chat_request_overrides(self) -> dict[str, object]:
+    def _chat_request_overrides(self, max_tokens: int) -> dict[str, object]:
         """Disable free-form reasoning before strict JSON generation.
 
         Reasoning models think by default, and vLLM exposes that reasoning
@@ -66,9 +66,14 @@ class VllmLocalLlmProvider(OpenAICompatibleLlmProvider):
         completion budget, so structured extraction can otherwise exhaust its
         budget without producing a JSON object. Chat templates switch it off in
         one of two ways - a flag (Qwen) or an effort (Inkling) - and ignore the
-        one they do not know. The template switch is a vLLM extension and
-        therefore belongs in this adapter, not in prompts or the
-        provider-neutral completion request.
+        one they do not know. Some models think whatever the template says, so
+        the engine also ends any thinking at half the completion budget: the
+        answer always keeps the other half, and a model that does not think
+        never meets the limit. These are vLLM extensions and therefore belong
+        in this adapter, not in prompts or the provider-neutral request.
         """
 
-        return {"chat_template_kwargs": {"enable_thinking": False, "reasoning_effort": "none"}}
+        return {
+            "chat_template_kwargs": {"enable_thinking": False, "reasoning_effort": "none"},
+            "thinking_token_budget": max_tokens // 2,
+        }

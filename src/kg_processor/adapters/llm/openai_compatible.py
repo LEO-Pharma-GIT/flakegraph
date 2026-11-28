@@ -235,7 +235,7 @@ class OpenAICompatibleLlmProvider:
         # that are not part of FlakeGraph's provider-neutral LLM port. A narrow
         # protected hook lets a specialized adapter add those controls without
         # copying request construction, retries, schemas, or response parsing.
-        request_payload.update(self._chat_request_overrides())
+        request_payload.update(self._chat_request_overrides(max_tokens))
 
         def send() -> httpx.Response:
             """Submit one retryable attempt through the retained connection pool."""
@@ -251,7 +251,7 @@ class OpenAICompatibleLlmProvider:
         response.raise_for_status()
         return chat_completion_from_payload(response.json())
 
-    def _chat_request_overrides(self) -> dict[str, object]:
+    def _chat_request_overrides(self, max_tokens: int) -> dict[str, object]:
         """Return runtime-specific top-level chat-completion request fields.
 
         The generic compatible adapter needs no additions. Subclasses may add
@@ -259,4 +259,5 @@ class OpenAICompatibleLlmProvider:
         messages, schema, sampling, or token-budget contract.
         """
 
+        del max_tokens
         return {}
